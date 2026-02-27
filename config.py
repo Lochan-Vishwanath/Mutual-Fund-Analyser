@@ -150,24 +150,6 @@ CATEGORIES = {
         "min_history_years":      5,
     },
 
-    # ── MIDCAP & SMALLCAP ────────────────────────────────────────────────
-    # Benchmark: Nifty Midsmallcap 400 or composite (Direct Growth)
-    # Verify: python utils.py search "Nifty Midsmallcap 400 Direct Growth"
-    "MidCap & SmallCap": {
-        "strategy":               "active",
-        "amfi_category_keywords": ["Mid Cap Fund", "Small Cap Fund"],
-        # Filter to only the SEBI "Mid Small Cap" category funds
-        "name_must_contain":      [],
-        # AMFI category keyword for this is "Mid Small Cap Fund"
-        "amfi_category_keywords": ["Mid Small Cap Fund"],
-        # VERIFY: python utils.py search "Nifty Midsmallcap 400 Index Direct"
-        "benchmark_code":         "149893",   # ← VERIFY before running
-        "aum_min":                300,
-        "aum_max":                15000,
-        "down_capture_max":       103,
-        "min_history_years":      5,
-    },
-
     # ── SMALL CAP ───────────────────────────────────────────────────────
     # Benchmark: Nifty Smallcap 250 index fund (Direct Growth)
     "Small Cap": {
