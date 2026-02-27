@@ -22,8 +22,10 @@ jobs:
         run: |
           pip install -r requirements.txt
 
-      - name: Run screener
-        env:
+- name: Run screener
+env:
           MF_EMAIL_PASSWORD: ${{ secrets.MF_EMAIL_PASSWORD }}
-        run: |
-          python main.py --auto
+          EMAIL_SENDER: ${{ secrets.EMAIL_SENDER }}
+          SUBSCRIBERS: ${{ secrets.SUBSCRIBERS }}
+run: |
+python main.py --auto
