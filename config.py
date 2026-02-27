@@ -22,14 +22,6 @@ EMAIL_PASSWORD  = os.getenv("MF_EMAIL_PASSWORD", "") # Gmail App Password
 EMAIL_SUBJECT   = "Quarterly MF Review — Top 3 Funds Per Category"
 SUBSCRIBERS     = os.getenv("SUBSCRIBERS", "you@gmail.com").split(",")
 
-# ── EMAIL ──────────────────────────────────────────────────────────────────
-EMAIL_SENDER    = "yourname@gmail.com"
-EMAIL_PASSWORD  = ""                       # Or env var: MF_EMAIL_PASSWORD
-EMAIL_SUBJECT   = "Quarterly MF Review — Top 3 Funds Per Category"
-SUBSCRIBERS     = [
-    "you@gmail.com",
-]
-
 # ── TOP N FUNDS TO SHOW PER CATEGORY ─────────────────────────────────────
 TOP_N = 3
 
@@ -114,18 +106,6 @@ CATEGORIES = {
         "amfi_category_keywords": ["Index Funds", "Large Cap Fund"],
         "name_must_contain":      ["nifty 50", "sensex", "bse 100", "nifty 100"],
         "benchmark_code":         None,
-        "aum_min":                1000,
-        "aum_max":                None,
-        "down_capture_max":       None,
-        "min_history_years":      5,
-    },
-
-    "Large Cap (Active)": {
-
-        "strategy":               "passive",
-        "amfi_category_keywords": ["Index Funds", "Large Cap Fund"],
-        "name_must_contain":      ["nifty 50", "sensex", "bse 100", "nifty 100"],
-        "benchmark_code":         None,    # passive: ranked by tracking error only
         "aum_min":                1000,
         "aum_max":                None,
         "down_capture_max":       None,
