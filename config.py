@@ -10,6 +10,17 @@
 # BENCHMARK CODES: Verify with: python utils.py search "<index name> Direct Growth"
 # Then confirm with: python utils.py verify <code>
 # ─────────────────────────────────────────────────────────────────────────────
+import os
+from dotenv import load_dotenv
+
+# Load .env file if it exists
+load_dotenv()
+
+# ── EMAIL ──────────────────────────────────────────────────────────────────
+EMAIL_SENDER    = os.getenv("EMAIL_SENDER", "yourname@gmail.com")
+EMAIL_PASSWORD  = os.getenv("MF_EMAIL_PASSWORD", "") # Gmail App Password
+EMAIL_SUBJECT   = "Quarterly MF Review — Top 3 Funds Per Category"
+SUBSCRIBERS     = os.getenv("SUBSCRIBERS", "you@gmail.com").split(",")
 
 # ── EMAIL ──────────────────────────────────────────────────────────────────
 EMAIL_SENDER    = "yourname@gmail.com"
