@@ -94,7 +94,23 @@ SCORE_WEIGHTS = {
 CATEGORIES = {
 
     # ── PASSIVE ─────────────────────────────────────────────────────────
-    "Large Cap / Index (Passive)": {
+    # ── LARGE CAP (HYBRID VIEW) ──────────────────────────────────────────
+    # Note: app.py will merge the Passive and Active Large Cap results into one view.
+    # We keep them separate here to apply different scoring logic (Tracking Error vs Alpha).
+
+    "Large Cap (Passive)": {
+        "strategy":               "passive",
+        "amfi_category_keywords": ["Index Funds", "Large Cap Fund"],
+        "name_must_contain":      ["nifty 50", "sensex", "bse 100", "nifty 100"],
+        "benchmark_code":         None,
+        "aum_min":                1000,
+        "aum_max":                None,
+        "down_capture_max":       None,
+        "min_history_years":      5,
+    },
+
+    "Large Cap (Active)": {
+
         "strategy":               "passive",
         "amfi_category_keywords": ["Index Funds", "Large Cap Fund"],
         "name_must_contain":      ["nifty 50", "sensex", "bse 100", "nifty 100"],
@@ -121,6 +137,8 @@ CATEGORIES = {
         "min_history_years":      7,
     },
 
+    # Benchmark: Nifty LargeMidcap 250 index fund (Direct Growth)
+    # Verify: python utils.py search "Nifty LargeMidcap 250 Direct Growth"
     # ── LARGE & MIDCAP ──────────────────────────────────────────────────
     # Benchmark: Nifty LargeMidcap 250 index fund (Direct Growth)
     # Verify: python utils.py search "Nifty LargeMidcap 250 Direct Growth"

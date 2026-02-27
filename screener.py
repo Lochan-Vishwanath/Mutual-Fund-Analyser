@@ -257,7 +257,6 @@ def run_screening(previous_results: dict = None) -> dict[str, dict]:
                 continue
 
             # ── Active-only Phase 2 gates ─────────────────────────────────
-            # ── Active-only Phase 2 gates ─────────────────────────────────
             if not is_passive:
 
                 # Gate: Rolling return consistency
@@ -351,8 +350,6 @@ def run_screening(previous_results: dict = None) -> dict[str, dict]:
             ranked = sorted(passed, key=lambda x: x["total_score"], reverse=True)
 
         top_n_funds = ranked[:TOP_N]
-
-        # ── Step 7: Continuity Check (Holdover vs New Entrant) ────────────────
 
         # ── Step 7: Continuity Check (Holdover vs New Entrant) ────────────────
         if previous_results and category in previous_results:

@@ -248,7 +248,63 @@ def build_html_email(results: dict, nifty_pe: float | None) -> str:
     total_eliminated = total_screened - total_passed
 
     category_sections = ""
+    # ── Special: Large Cap Merged View ───────────────────────────────────
+    # If both Large Cap Active and Passive exist, display them together in a "Winner's Circle"
+    lc_act = results.get("Large Cap (Active)")
+    lc_pas = results.get("Large Cap (Passive)")
+    
+    if lc_act or lc_pas:
+        # Create a unified section
+        combined_html = ""
+        
+        # ACTIVE COLUMN
+        if lc_act:
+            top_act = lc_act.get("top_funds", [])
+            avg_act = lc_act.get("category_avg", {})
+            act_rows = _category_avg_row(avg_act)
+            for rank, f in enumerate(top_act, 1):
+                act_rows += _fund_card(f, rank, is_passive=False)
+                
+            combined_html += f"""
+            <div style="margin-bottom:24px">
+              <h3 style="color:#059669;margin:0 0 10px 0;border-bottom:2px solid #059669;display:inline-block;padding-bottom:4px">
+                🧠 Top Active Managers
+              </h3>
+              <div style="font-size:12px;color:#666;margin-bottom:12px">Ranked by Alpha, Information Ratio & Consistency</div>
+              {act_rows}
+            </div>"""
+
+        # PASSIVE COLUMN
+        if lc_pas:
+            top_pas = lc_pas.get("top_funds", [])
+            pas_rows = ""
+            for rank, f in enumerate(top_pas, 1):
+                pas_rows += _fund_card(f, rank, is_passive=True)
+                
+            combined_html += f"""
+            <div style="margin-bottom:24px">
+              <h3 style="color:#2563EB;margin:0 0 10px 0;border-bottom:2px solid #2563EB;display:inline-block;padding-bottom:4px">
+                🤖 Top Passive / Index
+              </h3>
+              <div style="font-size:12px;color:#666;margin-bottom:12px">Ranked by lowest Tracking Error & Cost</div>
+              {pas_rows}
+            </div>"""
+
+        category_sections += f"""
+        <div style="margin-bottom:40px;border:1px solid #e0e8f0;background:#fafbfc;padding:24px;border-radius:8px">
+          <div style="margin-bottom:20px;border-bottom:2px solid #1B3A6B;padding-bottom:10px">
+            <h2 style="margin:0;font-size:20px;color:#1B3A6B">⚔️ Large Cap: Active vs Passive</h2>
+            <div style="font-size:12px;color:#666;margin-top:4px">Direct comparison to help you decide: Pay for Alpha or Save on Fees?</div>
+          </div>
+          {combined_html}
+        </div>"""
+
+        # Remove them from the standard loop
+        if "Large Cap (Active)" in results:  del results["Large Cap (Active)"]
+        if "Large Cap (Passive)" in results: del results["Large Cap (Passive)"]
+
     for category, data in results.items():
+
         top_funds  = data.get("top_funds", [])
         eliminated = data.get("eliminated", [])
         is_passive = data.get("is_passive", False)
