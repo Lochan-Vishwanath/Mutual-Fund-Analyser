@@ -1,0 +1,29 @@
+name: Quarterly Screening
+
+on:
+  schedule:
+    # Run at 02:30 UTC (8:00 AM IST) on 1st of Jan, Apr, Jul, Oct
+    - cron: '30 2 1 1,4,7,10 *'
+  workflow_dispatch:
+
+jobs:
+  screen-and-email:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repo
+        uses: actions/checkout@v3
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
+
+      - name: Run screener
+        env:
+          MF_EMAIL_PASSWORD: ${{ secrets.MF_EMAIL_PASSWORD }}
+        run: |
+          python main.py --auto
