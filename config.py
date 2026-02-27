@@ -1,24 +1,22 @@
 # ─────────────────────────────────────────────────────────────────────────────
 # config.py  —  All configurable parameters.
 #
-# You no longer need to list individual fund candidates.
-# The screener fetches ALL Direct Growth funds in each AMFI category,
-# runs the full strategy on every one, and surfaces the top N.
+# v3 Changes:
+#   - Added Large Cap (Active), Large & MidCap, MidCap & SmallCap categories
+#   - Updated SCORE_WEIGHTS: added up_capture (18%), TER (5%), rebalanced
+#   - Added UP_CAPTURE_MIN gate (funds that can't participate in rallies = cut)
+#   - Added TER_GATE_MAX_PERCENTILE: top 25% most expensive → penalised in score
 #
-# What you actually need to update:
-#   1. EMAIL_SENDER, EMAIL_PASSWORD, SUBSCRIBERS
-#   2. benchmark_code for each active category
-#      (find codes with: python utils.py search "Nifty Midcap 150 Index")
-#   3. RISK_FREE_RATE_ANNUAL — update quarterly from rbi.org.in
+# BENCHMARK CODES: Verify with: python utils.py search "<index name> Direct Growth"
+# Then confirm with: python utils.py verify <code>
 # ─────────────────────────────────────────────────────────────────────────────
 
 # ── EMAIL ──────────────────────────────────────────────────────────────────
-EMAIL_SENDER    = "yourname@gmail.com"     # Gmail address
+EMAIL_SENDER    = "yourname@gmail.com"
 EMAIL_PASSWORD  = ""                       # Or env var: MF_EMAIL_PASSWORD
 EMAIL_SUBJECT   = "Quarterly MF Review — Top 3 Funds Per Category"
 SUBSCRIBERS     = [
     "you@gmail.com",
-    "family@gmail.com",
 ]
 
 # ── TOP N FUNDS TO SHOW PER CATEGORY ─────────────────────────────────────
@@ -37,7 +35,6 @@ PE_THRESHOLDS = {
 }
 
 # ── SCREENING PARAMETERS ─────────────────────────────────────────────────
-# ── SCREENING PARAMETERS ─────────────────────────────────────────────────
 ROLLING_WINDOW_YEARS    = 3     # 3-year rolling return windows
 ROLLING_CONSISTENCY_MIN = 0.65  # must beat benchmark > 65% of windows
 MIN_HISTORY_YEARS       = 5     # discard funds with < 5 years of NAV data
@@ -47,45 +44,59 @@ ABSOLUTE_RETURN_TARGET  = 0.12  # 12% absolute return target
 ABSOLUTE_RETURN_MIN_PCT = 0.70  # Must hit target > 70% of windows
 CAPITAL_PROTECTION_MAX  = 0.05  # Max 5% of windows with negative returns
 
+# Capture ratio gates (NEW in v3)
+UP_CAPTURE_MIN          = 80    # Fund must participate >= 80% of benchmark rally
+# (down_capture_max is set per category in CATEGORIES config below)
+
+# TER percentile gate: funds in the top X% most expensive get a scoring penalty
+# Set to None to disable. Does NOT eliminate — only penalises in scoring.
+TER_TOP_PERCENTILE_PENALTY = 0.75   # above 75th percentile TER = scoring hit
+
 # ── WEIGHTED SCORECARD (must sum to 1.0) ─────────────────────────────────
+# v3 changes vs v2:
+#   - Added up_capture (18%): can't score well if you can't participate in rallies
+#   - Added ter_score (5%): lower cost funds win ties
+#   - Reduced sortino from 25% to 20% (still dominant but balanced)
+#   - Removed absolute_consistency from scoring (now a Phase 2 gate only)
+#   - Rebalanced other weights
 SCORE_WEIGHTS = {
-    "rolling_consistency": 0.20,
-    "absolute_consistency":0.15,
-    "sortino_ratio":       0.25,
-    "information_ratio":   0.20,
-    "down_capture":        0.10,
-    "max_drawdown":        0.10,
+    "rolling_consistency": 0.18,   # % of rolling windows beating benchmark
+    "sortino_ratio":       0.20,   # risk-adjusted return (downside deviation)
+    "information_ratio":   0.15,   # active return per unit of tracking error
+    "up_capture":          0.18,   # NEW: participation in benchmark rallies
+    "down_capture":        0.15,   # downside protection (lower = better)
+    "max_drawdown":        0.09,   # worst peak-to-trough (less negative = better)
+    "ter_score":           0.05,   # expense ratio (lower TER = better score)
 }
+# Sum = 0.18 + 0.20 + 0.15 + 0.18 + 0.15 + 0.09 + 0.05 = 1.00 ✓
+
 # ─────────────────────────────────────────────────────────────────────────────
 # CATEGORY CONFIGURATION
 # ─────────────────────────────────────────────────────────────────────────────
+#
 # amfi_category_keywords : substrings matched against AMFI section headers
 #                          in NAVAll.txt (case-insensitive).
-#                          Example AMFI headers:
-#                            "Open Ended Schemes(Equity Scheme - Large Cap Fund)"
-#                            "Open Ended Schemes(Equity Scheme - Mid Cap Fund)"
-#                            "Open Ended Schemes(Equity Scheme - Small Cap Fund)"
-#                            "Open Ended Schemes(Equity Scheme - Flexi Cap Fund)"
-#                            "Open Ended Schemes(Other Scheme - Index Funds)"
 #
 # name_must_contain      : further filter within the AMFI category by name.
-#                          Useful for index funds (want Nifty 50 only, not all index funds).
-#                          Leave [] to accept all funds in the category.
 #
 # benchmark_code         : mfapi.in scheme code for benchmark index fund.
-#                          Used for Alpha, Beta, Information Ratio, Rolling Consistency.
-#                          Find with: python utils.py search "Nifty Midcap 150 Index Direct"
+#                          Find/verify: python utils.py search "<name> Direct Growth"
+#                                       python utils.py verify <code>
+#
+# strategy               : "passive" (ranked by tracking error only)
+#                          "active"  (full Phase 2 + Phase 3 pipeline)
 #
 # aum_min / aum_max      : in Crores. Outside range = eliminated.
-# down_capture_max       : category-adjusted per strategy doc.
+# down_capture_max       : category-adjusted. Flexi tighter (95), Small Cap looser (105).
 # min_history_years      : override global value if needed.
 # ─────────────────────────────────────────────────────────────────────────────
+
 CATEGORIES = {
 
-    "Large Cap / Index Fund": {
+    # ── PASSIVE ─────────────────────────────────────────────────────────
+    "Large Cap / Index (Passive)": {
         "strategy":               "passive",
         "amfi_category_keywords": ["Index Funds", "Large Cap Fund"],
-        # Extra name filter — within Index Funds, only want Nifty 50 / Sensex trackers
         "name_must_contain":      ["nifty 50", "sensex", "bse 100", "nifty 100"],
         "benchmark_code":         None,    # passive: ranked by tracking error only
         "aum_min":                1000,
@@ -94,12 +105,44 @@ CATEGORIES = {
         "min_history_years":      5,
     },
 
+    # ── LARGE CAP (ACTIVE) ───────────────────────────────────────────────
+    # Benchmark: Nifty 100 TRI index fund (Direct Growth)
+    # Verify: python utils.py search "Nifty 100 Index Fund Direct Growth"
+    "Large Cap (Active)": {
+        "strategy":               "active",
+        "amfi_category_keywords": ["Large Cap Fund"],
+        "name_must_contain":      [],
+        # VERIFY THIS CODE: python utils.py search "Nifty 100 Index Fund Direct"
+        # Common options: DSP Nifty 100 Index Fund, UTI Nifty 100 Index Fund
+        "benchmark_code":         "120716",   # ← VERIFY: UTI Nifty Next 50 or similar
+        "aum_min":                1000,
+        "aum_max":                None,        # No upper limit for large cap
+        "down_capture_max":       95,           # Large cap should protect better
+        "min_history_years":      7,
+    },
+
+    # ── LARGE & MIDCAP ──────────────────────────────────────────────────
+    # Benchmark: Nifty LargeMidcap 250 index fund (Direct Growth)
+    # Verify: python utils.py search "Nifty LargeMidcap 250 Direct Growth"
+    "Large & MidCap": {
+        "strategy":               "active",
+        "amfi_category_keywords": ["Large & Mid Cap Fund"],
+        "name_must_contain":      [],
+        # VERIFY THIS CODE: python utils.py search "LargeMidcap 250 Index Direct"
+        "benchmark_code":         "149100",   # ← VERIFY before running
+        "aum_min":                500,
+        "aum_max":                30000,
+        "down_capture_max":       100,
+        "min_history_years":      5,
+    },
+
+    # ── MID CAP ─────────────────────────────────────────────────────────
+    # Benchmark: Nifty Midcap 150 index fund (Direct Growth)
     "Mid Cap": {
         "strategy":               "active",
         "amfi_category_keywords": ["Mid Cap Fund"],
         "name_must_contain":      [],
-        # Benchmark: a Nifty Midcap 150 index fund direct growth
-        # Run: python utils.py search "Nifty Midcap 150 Index Direct" to confirm code
+        # Run: python utils.py verify 149892 to confirm
         "benchmark_code":         "149892",
         "aum_min":                500,
         "aum_max":                20000,
@@ -107,12 +150,31 @@ CATEGORIES = {
         "min_history_years":      5,
     },
 
+    # ── MIDCAP & SMALLCAP ────────────────────────────────────────────────
+    # Benchmark: Nifty Midsmallcap 400 or composite (Direct Growth)
+    # Verify: python utils.py search "Nifty Midsmallcap 400 Direct Growth"
+    "MidCap & SmallCap": {
+        "strategy":               "active",
+        "amfi_category_keywords": ["Mid Cap Fund", "Small Cap Fund"],
+        # Filter to only the SEBI "Mid Small Cap" category funds
+        "name_must_contain":      [],
+        # AMFI category keyword for this is "Mid Small Cap Fund"
+        "amfi_category_keywords": ["Mid Small Cap Fund"],
+        # VERIFY: python utils.py search "Nifty Midsmallcap 400 Index Direct"
+        "benchmark_code":         "149893",   # ← VERIFY before running
+        "aum_min":                300,
+        "aum_max":                15000,
+        "down_capture_max":       103,
+        "min_history_years":      5,
+    },
+
+    # ── SMALL CAP ───────────────────────────────────────────────────────
+    # Benchmark: Nifty Smallcap 250 index fund (Direct Growth)
     "Small Cap": {
         "strategy":               "active",
         "amfi_category_keywords": ["Small Cap Fund"],
         "name_must_contain":      [],
-        # Benchmark: a Nifty Smallcap 250 index fund direct growth
-        # Run: python utils.py search "Nifty Smallcap 250 Index Direct" to confirm code
+        # Run: python utils.py verify 148614 to confirm
         "benchmark_code":         "148614",
         "aum_min":                500,
         "aum_max":                12000,
@@ -120,38 +182,49 @@ CATEGORIES = {
         "min_history_years":      5,
     },
 
+    # ── FLEXI CAP ────────────────────────────────────────────────────────
+    # Benchmark: Nifty 500 index fund (Direct Growth)
     "Flexi Cap": {
         "strategy":               "active",
         "amfi_category_keywords": ["Flexi Cap Fund"],
         "name_must_contain":      [],
-        # Benchmark: a Nifty 500 index fund direct growth
-        # Run: python utils.py search "Nifty 500 Index Fund Direct" to confirm code
+        # Run: python utils.py verify 147622 to confirm
         "benchmark_code":         "147622",
         "aum_min":                500,
         "aum_max":                50000,
         "down_capture_max":       95,
-        "min_history_years":      5,
+        "min_history_years":      7,
     },
 
-    # ── UNCOMMENT BELOW TO ADD MORE CATEGORIES ───────────────────────────
+    # ── UNCOMMENT TO ENABLE ADDITIONAL CATEGORIES ────────────────────────
     # "Multi Cap": {
     #     "strategy":               "active",
     #     "amfi_category_keywords": ["Multi Cap Fund"],
     #     "name_must_contain":      [],
-    #     "benchmark_code":         "147622",
+    #     "benchmark_code":         "147622",   # Nifty 500 proxy
     #     "aum_min":                500,
     #     "aum_max":                50000,
     #     "down_capture_max":       100,
     #     "min_history_years":      3,   # category only exists post-2020 SEBI mandate
     # },
-    # "ELSS (Old Tax Regime)": {
+    # "ELSS": {
     #     "strategy":               "active",
     #     "amfi_category_keywords": ["ELSS"],
     #     "name_must_contain":      [],
-    #     "benchmark_code":         "147622",
+    #     "benchmark_code":         "147622",   # Nifty 500 proxy
     #     "aum_min":                500,
     #     "aum_max":                50000,
     #     "down_capture_max":       100,
     #     "min_history_years":      7,
+    # },
+    # "Focused Fund": {
+    #     "strategy":               "active",
+    #     "amfi_category_keywords": ["Focused Fund"],
+    #     "name_must_contain":      [],
+    #     "benchmark_code":         "147622",
+    #     "aum_min":                500,
+    #     "aum_max":                30000,
+    #     "down_capture_max":       100,
+    #     "min_history_years":      5,
     # },
 }

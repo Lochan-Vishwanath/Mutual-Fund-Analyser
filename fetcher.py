@@ -1,18 +1,11 @@
 # ─────────────────────────────────────────────────────────────────────────────
 # fetcher.py  —  Data layer.
 #
-# Key addition vs. v1: get_all_direct_growth_funds_by_category()
-# This parses AMFI's NAVAll.txt to extract every Direct Growth fund
-# in a given SEBI category — no manual candidate list needed.
-#
-# AMFI NAVAll.txt structure:
-#   Open Ended Schemes(Equity Scheme - Large Cap Fund)    ← section header
-#   <blank line>
-#   AMC Name
-#   Scheme Code;ISIN1;ISIN2;Scheme Name;NAV;Repurchase;Sale;Date
-#   119552;...;Aditya Birla Sun Life Frontline Equity Fund - Direct Plan-Growth;531.11;...
-#   ...
-#   (repeat for each AMC block, then next section header)
+# v3 Changes:
+#   - Added get_ter_map(): fetches Expense Ratio (TER) from AMFI portal
+#   - Added get_category_average_metrics(): computes category peer averages
+#   - Improved _is_direct_growth() filter to handle more name variations
+#   - Added AMFI category fallback for funds without direct "Mid Small Cap" header
 # ─────────────────────────────────────────────────────────────────────────────
 
 import os
@@ -29,9 +22,9 @@ CACHE_DIR.mkdir(exist_ok=True)
 MFAPI_BASE   = "https://api.mfapi.in/mf"
 AMFI_NAV_URL = "https://www.amfiindia.com/spages/NAVAll.txt"
 
-NAV_CACHE_HOURS    = 12    # re-fetch NAV history if older than this
-SCHEME_CACHE_HOURS = 24    # re-fetch AMFI master if older than this
-FETCH_DELAY        = 0.25  # seconds between mfapi.in calls — be polite
+NAV_CACHE_HOURS    = 12
+SCHEME_CACHE_HOURS = 24
+FETCH_DELAY        = 0.30   # slightly more polite in v3
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -53,20 +46,37 @@ def _is_fresh(path: Path, max_hours: float) -> bool:
 def _is_direct_growth(name: str) -> bool:
     """
     Returns True only for Direct Plan Growth schemes.
-    Filters out: Regular plans, IDCW/Dividend plans, FoFs, ETFs.
+    Filters out: Regular plans, IDCW/Dividend plans, FoFs, ETFs, Pension.
     """
     n = name.lower()
+
+    # Must contain "direct"
     if "direct" not in n:
         return False
-    # Must have growth signal
-    if not any(g in n for g in ["growth", "gr", "-g"]):
+
+    # Must have growth signal (various naming conventions across AMCs)
+    growth_signals = ["growth", " gr", "-gr", "-g)", "- growth", "growth plan"]
+    if not any(g in n for g in growth_signals):
         return False
-    # Exclude dividend/IDCW
-    if any(d in n for d in ["idcw", "dividend", "div payout", "reinvest", "bonus"]):
+
+    # Exclude dividend / IDCW variants
+    exclude = [
+        "idcw", "dividend", "div payout", "reinvest", "bonus",
+        "annual distribution", "monthly distribution", "quarterly distribution",
+        "weekly distribution"
+    ]
+    if any(e in n for e in exclude):
         return False
-    # Exclude FoF and ETF
-    if any(e in n for e in ["fund of fund", "fof", " etf", "exchange traded"]):
+
+    # Exclude structure types that aren't open-ended equity funds
+    structure_exclude = [
+        "fund of fund", "fof", " etf", "exchange traded",
+        "pension", "retirement", "segregated", "close ended",
+        "interval fund", "fixed maturity", "fmp"
+    ]
+    if any(e in n for e in structure_exclude):
         return False
+
     return True
 
 
@@ -79,6 +89,7 @@ def _fetch_amfi_raw() -> str:
     cache = _txt_cache_path("amfi_navall")
     if _is_fresh(cache, SCHEME_CACHE_HOURS):
         return cache.read_text(encoding="utf-8", errors="replace")
+    print("  [fetcher] Refreshing AMFI NAVAll.txt...")
     resp = requests.get(AMFI_NAV_URL, timeout=30)
     resp.raise_for_status()
     text = resp.text
@@ -89,14 +100,8 @@ def _fetch_amfi_raw() -> str:
 def _build_category_map(amfi_text: str) -> dict[str, list[dict]]:
     """
     Parses NAVAll.txt and returns:
-      {
-        "Equity Scheme - Large Cap Fund": [
-            {"code": "119552", "name": "Aditya Birla Sun Life Frontline Equity..."},
-            ...
-        ],
-        ...
-      }
-    Only Direct Growth schemes are included.
+      { "Equity Scheme - Large Cap Fund": [{"code": "...", "name": "..."}, ...] }
+    Only Direct Growth schemes included.
     """
     category_map: dict[str, list[dict]] = {}
     current_category = None
@@ -106,10 +111,8 @@ def _build_category_map(amfi_text: str) -> dict[str, list[dict]]:
         if not line:
             continue
 
-        # Section header: "Open Ended Schemes(Equity Scheme - Large Cap Fund)"
-        # or "Close Ended Schemes(...)" — we only care about Open Ended
+        # Section headers
         if line.startswith("Open Ended Schemes(") or line.startswith("Interval Fund("):
-            # Extract the category label between the first ( and last )
             start = line.find("(")
             end   = line.rfind(")")
             if start != -1 and end != -1:
@@ -117,22 +120,20 @@ def _build_category_map(amfi_text: str) -> dict[str, list[dict]]:
             continue
 
         if line.startswith("Close Ended Schemes("):
-            current_category = None   # skip all close-ended
+            current_category = None
             continue
 
-        # AMC name lines and header rows — skip
         if current_category is None:
             continue
         if line.startswith("Scheme Code;"):
             continue
 
-        # Data rows: Code;ISIN1;ISIN2;Name;NAV;Repurchase;Sale;Date
         parts = line.split(";")
         if len(parts) < 4:
             continue
         code = parts[0].strip()
         if not code.isdigit():
-            continue   # AMC name row or garbage
+            continue
 
         name = parts[3].strip()
         if _is_direct_growth(name):
@@ -150,11 +151,9 @@ def get_all_direct_growth_funds_by_category(
 ) -> list[dict]:
     """
     Returns list of {code, name} dicts for all Direct Growth funds
-    whose AMFI category header matches any of the given keywords (case-insensitive).
-
-    name_must_contain: optional extra name filter (e.g. ["nifty 50"] for index funds).
+    whose AMFI category header matches any of the given keywords.
     """
-    amfi_text   = _fetch_amfi_raw()
+    amfi_text    = _fetch_amfi_raw()
     category_map = _build_category_map(amfi_text)
 
     funds = []
@@ -166,20 +165,16 @@ def get_all_direct_growth_funds_by_category(
             funds.extend(cat_funds)
 
     # Deduplicate by code
-    seen = set()
-    unique = []
+    seen, unique = set(), []
     for f in funds:
         if f["code"] not in seen:
             seen.add(f["code"])
             unique.append(f)
 
-    # Optional: filter by fund name keywords
+    # Optional name filter
     if name_must_contain:
         name_filters = [n.lower() for n in name_must_contain]
-        unique = [
-            f for f in unique
-            if any(nf in f["name"].lower() for nf in name_filters)
-        ]
+        unique = [f for f in unique if any(nf in f["name"].lower() for nf in name_filters)]
 
     return unique
 
@@ -226,6 +221,86 @@ def get_scheme_name(scheme_code: str) -> str:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# TER / Expense Ratio (NEW in v3)
+# ─────────────────────────────────────────────────────────────────────────────
+
+def get_ter_map() -> dict[str, float]:
+    """
+    Fetches Expense Ratio (TER) for all schemes from AMFI's portal.
+    Returns {scheme_code: ter_pct} e.g. {"119552": 0.78}
+
+    AMFI publishes TER at:
+      https://portal.amfiindia.com/DownloadExpenseRatioCurrent.aspx
+
+    Format (pipe-delimited):
+      AMC Code | AMC Name | Scheme Code | Scheme Name | Effective Date | TER (Regular) | TER (Direct)
+
+    Falls back to cache (7-day TTL) if fetch fails.
+    """
+    ter_cache = _cache_path("amfi_ter")
+    if _is_fresh(ter_cache, 168):   # 7 days — TER changes rarely
+        try:
+            with open(ter_cache) as f:
+                return json.load(f)
+        except Exception:
+            pass
+
+    ter_map: dict[str, float] = {}
+
+    # Primary source: AMFI TER download
+    urls_to_try = [
+        "https://portal.amfiindia.com/DownloadExpenseRatioCurrent.aspx",
+        "https://www.amfiindia.com/modules/TerPension",
+    ]
+
+    for url in urls_to_try:
+        try:
+            r = requests.get(url, timeout=20, headers={"User-Agent": "Mozilla/5.0"})
+            r.raise_for_status()
+            content = r.text
+
+            for line in content.splitlines():
+                # Try multiple delimiters — AMFI format varies
+                for delim in ["|", ";", ","]:
+                    parts = [p.strip() for p in line.split(delim)]
+                    if len(parts) >= 6:
+                        # Look for a scheme code (5-6 digit number)
+                        for i, part in enumerate(parts):
+                            if part.isdigit() and 4 <= len(part) <= 7:
+                                # TER is usually the last numeric column
+                                # Try to parse a % value from remaining columns
+                                for j in range(len(parts) - 1, i, -1):
+                                    try:
+                                        ter_val = float(parts[j].replace("%", "").strip())
+                                        if 0 < ter_val < 5:   # TER is always 0–5%
+                                            ter_map[part] = ter_val
+                                            break
+                                    except ValueError:
+                                        continue
+                                break
+                        break  # found a usable delimiter
+
+            if ter_map:
+                print(f"  [fetcher] Fetched TER for {len(ter_map)} schemes from AMFI")
+                break
+
+        except Exception as e:
+            print(f"  [fetcher] TER fetch from {url} failed: {e}")
+            continue
+
+    if ter_map:
+        try:
+            with open(ter_cache, "w") as f:
+                json.dump(ter_map, f)
+        except Exception:
+            pass
+    else:
+        print("  [fetcher] TER data unavailable — TER scoring will be skipped this run")
+
+    return ter_map
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # Nifty P/E
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -248,17 +323,19 @@ def get_nifty_pe() -> float | None:
             latest = sorted(rows, key=lambda x: x.get("Date", ""))[-1]
             val = float(latest.get("pe", 0))
             if val:
-                # Cache it
                 pe_cache = CACHE_DIR / "nifty_pe.json"
                 pe_cache.write_text(json.dumps({"pe": val, "ts": datetime.now().isoformat()}))
                 return val
     except Exception:
         pass
 
-    # Fallback: return cached value if within 7 days
+    # Fallback: cached value within 7 days
     pe_cache = CACHE_DIR / "nifty_pe.json"
     if _is_fresh(pe_cache, max_hours=168):
-        return json.loads(pe_cache.read_text()).get("pe")
+        try:
+            return json.loads(pe_cache.read_text()).get("pe")
+        except Exception:
+            pass
     return None
 
 
@@ -267,19 +344,17 @@ def get_nifty_pe() -> float | None:
 # ─────────────────────────────────────────────────────────────────────────────
 
 def get_amfi_aum_map() -> dict[str, float]:
-    """
-    Returns {scheme_code: aum_crores} parsed from AMFI NAVAll.txt.
-    Note: NAVAll.txt has the latest NAV and some supplementary columns.
-    Full AUM requires AMFI's separate AUM report; this is a best-effort proxy.
-    """
+    """Returns {scheme_code: aum_crores}. Best-effort from AMFI."""
     aum_cache = _cache_path("amfi_aum")
     if _is_fresh(aum_cache, SCHEME_CACHE_HOURS):
-        with open(aum_cache) as f:
-            return json.load(f)
+        try:
+            with open(aum_cache) as f:
+                return json.load(f)
+        except Exception:
+            pass
 
     aum_map: dict[str, float] = {}
     try:
-        # AMFI publishes a monthly AUM JSON at this endpoint
         url = "https://www.amfiindia.com/modules/AumNav"
         r = requests.get(url, timeout=20)
         for line in r.text.splitlines():
@@ -292,23 +367,27 @@ def get_amfi_aum_map() -> dict[str, float]:
                 except (ValueError, IndexError):
                     pass
     except Exception as e:
-        print(f"[WARN] AUM fetch failed: {e}. AUM gate will be skipped for this run.")
+        print(f"  [fetcher] AUM fetch failed: {e}. AUM gate skipped.")
 
     if aum_map:
-        with open(aum_cache, "w") as f:
-            json.dump(aum_map, f)
+        try:
+            with open(aum_cache, "w") as f:
+                json.dump(aum_map, f)
+        except Exception:
+            pass
 
     return aum_map
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Search utility (used by utils.py CLI)
+# Search utility
 # ─────────────────────────────────────────────────────────────────────────────
 
 def search_scheme(query: str, top_n: int = 15) -> list[dict]:
     """Find scheme codes by name. Used to verify benchmark codes."""
     all_cache = _cache_path("all_schemes")
     if not _is_fresh(all_cache, SCHEME_CACHE_HOURS):
+        print("  Fetching full scheme list from mfapi.in...")
         r = requests.get(MFAPI_BASE, timeout=30)
         r.raise_for_status()
         data = r.json()

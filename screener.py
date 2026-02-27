@@ -1,11 +1,14 @@
 # ─────────────────────────────────────────────────────────────────────────────
 # screener.py  —  Phase 2 elimination + Phase 3 weighted scoring.
 #
-# Key change vs. v1:
-#   - Fetches ALL Direct Growth funds in each category from AMFI
-#   - Runs full strategy on every fund (not a manual shortlist)
-#   - Returns top N per category instead of just the winner
-#   - Tracks every elimination reason so the email shows why funds were cut
+# v3 Changes:
+#   - Phase 2 gate: up_capture >= UP_CAPTURE_MIN (new)
+#   - Phase 3 scoring: includes up_capture and ter_score (new)
+#   - Computes category percentiles after all funds are processed
+#   - TER fetched and scored (lower = better)
+#   - Manager change proxy flag: 1Y return rank divergence vs 3Y rank
+#   - Beta context flag (beta > 1.3)
+#   - Category average metrics passed into results for UI display
 # ─────────────────────────────────────────────────────────────────────────────
 
 import numpy as np
@@ -13,38 +16,40 @@ import pandas as pd
 import json
 from pathlib import Path
 from datetime import datetime
-import pandas as pd
-from datetime import datetime
+
 from config import (
     CATEGORIES, ROLLING_CONSISTENCY_MIN, SCORE_WEIGHTS,
-    MIN_HISTORY_YEARS, ROLLING_WINDOW_YEARS, TOP_N
+    MIN_HISTORY_YEARS, ROLLING_WINDOW_YEARS, TOP_N,
+    ABSOLUTE_RETURN_MIN_PCT, CAPITAL_PROTECTION_MAX, UP_CAPTURE_MIN,
 )
 from fetcher import (
     get_all_direct_growth_funds_by_category,
-    get_nav_history, get_amfi_aum_map, get_scheme_name
+    get_nav_history, get_amfi_aum_map, get_scheme_name, get_ter_map
 )
-from metrics import compute_all_metrics
+from metrics import compute_all_metrics, compute_category_percentiles
 
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Scoring helpers
 # ─────────────────────────────────────────────────────────────────────────────
 
-def _quartile_score(value: float, all_values: list, higher_is_better: bool = True) -> float:
+def _quartile_score(value, all_values: list, higher_is_better: bool = True) -> float:
     """
-    Returns 1–4 based on which quartile the value falls in.
-    Top quartile = 4, bottom quartile = 1. Returns 0 if value is NaN.
+    Returns 1–4 based on quartile position. Top quartile = 4. Returns 0 if value is None/NaN.
+    When higher_is_better=False (down_capture, max_drawdown, ter): top quartile = lowest values.
     """
-    clean = [v for v in all_values if v is not None and not np.isnan(v)]
-    if not clean or (value is None) or np.isnan(value):
+    clean = [v for v in all_values if v is not None and not (isinstance(v, float) and np.isnan(v))]
+    if not clean or value is None or (isinstance(value, float) and np.isnan(value)):
         return 0.0
+
     q25, q50, q75 = np.percentile(clean, [25, 50, 75])
+
     if higher_is_better:
         if value >= q75: return 4.0
         if value >= q50: return 3.0
         if value >= q25: return 2.0
         return 1.0
-    else:  # lower is better (down capture, max drawdown)
+    else:
         if value <= q25: return 4.0
         if value <= q50: return 3.0
         if value <= q75: return 2.0
@@ -52,23 +57,77 @@ def _quartile_score(value: float, all_values: list, higher_is_better: bool = Tru
 
 
 def _weighted_score(fund: dict, all_funds: list) -> float:
-    """Compute the Phase 3 weighted score for a single fund."""
+    """Compute Phase 3 weighted score. Returns value in [0, 4]."""
+
     def vals(key):
         return [f.get(key) for f in all_funds]
 
     rc_score  = _quartile_score(fund.get("rolling_consistency"), vals("rolling_consistency"))
     so_score  = _quartile_score(fund.get("sortino"),             vals("sortino"))
     ir_score  = _quartile_score(fund.get("info_ratio"),          vals("info_ratio"))
-    dc_score  = _quartile_score(fund.get("down_capture"),        vals("down_capture"),        higher_is_better=False)
-    mdd_score = _quartile_score(fund.get("max_drawdown"),        vals("max_drawdown"),        higher_is_better=False)
+    uc_score  = _quartile_score(fund.get("up_capture"),          vals("up_capture"))
+    dc_score  = _quartile_score(fund.get("down_capture"),        vals("down_capture"),  higher_is_better=False)
+    mdd_score = _quartile_score(fund.get("max_drawdown"),        vals("max_drawdown"),  higher_is_better=False)
+    ter_score = _quartile_score(fund.get("ter"),                 vals("ter"),           higher_is_better=False)
 
     return (
-        SCORE_WEIGHTS["rolling_consistency"] * rc_score +
-        SCORE_WEIGHTS["sortino_ratio"]       * so_score +
-        SCORE_WEIGHTS["information_ratio"]   * ir_score +
-        SCORE_WEIGHTS["down_capture"]        * dc_score +
-        SCORE_WEIGHTS["max_drawdown"]        * mdd_score
+        SCORE_WEIGHTS.get("rolling_consistency", 0) * rc_score +
+        SCORE_WEIGHTS.get("sortino_ratio",       0) * so_score +
+        SCORE_WEIGHTS.get("information_ratio",   0) * ir_score +
+        SCORE_WEIGHTS.get("up_capture",          0) * uc_score +
+        SCORE_WEIGHTS.get("down_capture",        0) * dc_score +
+        SCORE_WEIGHTS.get("max_drawdown",        0) * mdd_score +
+        SCORE_WEIGHTS.get("ter_score",           0) * ter_score
     )
+
+
+def _compute_passive_score(fund: dict) -> float:
+    """For passive funds: score = 1 / tracking_error (lower TE = higher score)."""
+    te = fund.get("tracking_error")
+    if te and te > 0:
+        return 1.0 / te
+    return 0.0
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Manager change proxy (heuristic — not reliable without manager data API)
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _check_manager_change_proxy(fund: dict, all_funds: list) -> dict:
+    """
+    Heuristic: If a fund's 1Y CAGR percentile rank differs sharply from
+    its 5Y CAGR percentile rank (> 30 percentile points), it's a signal
+    that something structural may have changed (new manager, mandate shift).
+
+    Returns dict with 'manager_flag' (bool) and 'manager_flag_reason'.
+    NOTE: This is a proxy only. Always verify on the AMC website.
+    """
+    c1 = fund.get("cagr_3y")   # closest to 1Y we track at 3Y
+    c5 = fund.get("cagr_5y")
+
+    if c1 is None or c5 is None:
+        return {"manager_flag": False, "manager_flag_reason": None}
+
+    all_c1 = [f.get("cagr_3y") for f in all_funds if f.get("cagr_3y") is not None]
+    all_c5 = [f.get("cagr_5y") for f in all_funds if f.get("cagr_5y") is not None]
+
+    if len(all_c1) < 5 or len(all_c5) < 5:
+        return {"manager_flag": False, "manager_flag_reason": None}
+
+    pct_c1 = (np.array(all_c1) < c1).sum() / len(all_c1) * 100
+    pct_c5 = (np.array(all_c5) < c5).sum() / len(all_c5) * 100
+    divergence = abs(pct_c1 - pct_c5)
+
+    if divergence > 30:
+        return {
+            "manager_flag": True,
+            "manager_flag_reason": (
+                f"3Y rank ({pct_c1:.0f}th pct) diverges {divergence:.0f}pts from "
+                f"5Y rank ({pct_c5:.0f}th pct) — verify fund manager hasn't changed"
+            )
+        }
+
+    return {"manager_flag": False, "manager_flag_reason": None}
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -82,16 +141,18 @@ def run_screening() -> dict[str, dict]:
     Returns:
     {
       "Mid Cap": {
-        "top_funds":   [ {...fund metrics...}, ... ],   # top N, ranked
-        "eliminated":  [ {..., "reason": "..."}, ... ],
-        "total_found": 25,                              # total in category
-        "total_passed_phase2": 8,
-        "is_passive": False,
+        "top_funds":            [ {...fund metrics...}, ... ],
+        "eliminated":           [ {..., "reason": "..."}, ... ],
+        "total_found":          25,
+        "total_passed_phase2":  8,
+        "is_passive":           False,
+        "category_avg":         { "rolling_consistency": 0.62, "cagr_5y": 0.18, ... },
       },
       ...
     }
     """
     aum_map = get_amfi_aum_map()
+    ter_map = get_ter_map()   # NEW: fetch TER for all schemes
     results = {}
 
     for category, cfg in CATEGORIES.items():
@@ -106,7 +167,7 @@ def run_screening() -> dict[str, dict]:
         dc_max       = cfg.get("down_capture_max", None)
         min_years    = cfg.get("min_history_years", MIN_HISTORY_YEARS)
 
-        # ── Step 1: Get all funds in this AMFI category ──────────────────
+        # ── Step 1: Get all funds in AMFI category ────────────────────────
         all_funds = get_all_direct_growth_funds_by_category(
             amfi_category_keywords = cfg["amfi_category_keywords"],
             name_must_contain      = cfg.get("name_must_contain", []),
@@ -119,7 +180,7 @@ def run_screening() -> dict[str, dict]:
             results[category] = {
                 "top_funds": [], "eliminated": [],
                 "total_found": 0, "total_passed_phase2": 0,
-                "is_passive": is_passive,
+                "is_passive": is_passive, "category_avg": {},
             }
             continue
 
@@ -128,101 +189,149 @@ def run_screening() -> dict[str, dict]:
         if bench_code:
             try:
                 bench_df = get_nav_history(bench_code)
-                print(f"  Benchmark: {bench_code} ({len(bench_df)} days)")
+                print(f"  Benchmark: {bench_code} ({len(bench_df)} NAV days, "
+                      f"{(bench_df['date'].iloc[-1] - bench_df['date'].iloc[0]).days / 365.25:.1f}y)")
             except Exception as e:
                 print(f"  [WARN] Benchmark unavailable: {e}")
 
         # ── Step 3: Phase 2 — Elimination ────────────────────────────────
-        passed:     list[dict] = []
-        eliminated: list[dict] = []
+        passed:         list[dict] = []
+        eliminated:     list[dict] = []
+        # Collect all computed metrics (even eliminated) for category averages
+        all_computed:   list[dict] = []
 
         for i, fund in enumerate(all_funds):
-            code = fund["code"]
-            name = fund["name"]
+            code   = fund["code"]
+            name   = fund["name"]
             prefix = f"  [{i+1:>3}/{total_found}]"
 
-            # ── Gate: History length ─────────────────────────────────────
+            # Gate: History length
             try:
                 nav_df = get_nav_history(code)
             except Exception as e:
-                print(f"{prefix} SKIP   {name[:50]} — NAV fetch error")
+                print(f"{prefix} SKIP   {name[:52]} — NAV fetch error")
                 eliminated.append({**fund, "reason": f"NAV fetch failed: {e}"})
                 continue
 
             years_of_data = (nav_df["date"].iloc[-1] - nav_df["date"].iloc[0]).days / 365.25
             if years_of_data < min_years:
-                print(f"{prefix} CUT    {name[:50]} — only {years_of_data:.1f}y history (need {min_years}y)")
+                print(f"{prefix} CUT    {name[:52]} — {years_of_data:.1f}y history (need {min_years}y)")
                 eliminated.append({**fund, "reason": f"Insufficient history: {years_of_data:.1f}y"})
                 continue
 
-            # ── Gate: AUM ────────────────────────────────────────────────
+            # Gate: AUM
             aum = aum_map.get(code)
             if aum is not None:
                 if aum_min and aum < aum_min:
-                    print(f"{prefix} CUT    {name[:50]} — AUM ₹{aum:.0f}Cr < min")
+                    print(f"{prefix} CUT    {name[:52]} — AUM ₹{aum:.0f}Cr < min ₹{aum_min}Cr")
                     eliminated.append({**fund, "reason": f"AUM too small: ₹{aum:.0f}Cr"})
                     continue
                 if aum_max and aum > aum_max:
-                    print(f"{prefix} CUT    {name[:50]} — AUM ₹{aum:.0f}Cr > max")
+                    print(f"{prefix} CUT    {name[:52]} — AUM ₹{aum:.0f}Cr > max ₹{aum_max}Cr")
                     eliminated.append({**fund, "reason": f"AUM too large: ₹{aum:.0f}Cr"})
                     continue
 
-            # ── Compute all metrics ──────────────────────────────────────
+            # Compute all metrics
             try:
                 m = compute_all_metrics(nav_df, bench_df, rolling_window_years=ROLLING_WINDOW_YEARS)
             except Exception as e:
-                print(f"{prefix} SKIP   {name[:50]} — metric error: {e}")
+                print(f"{prefix} SKIP   {name[:52]} — metric error: {e}")
                 eliminated.append({**fund, "reason": f"Metric computation failed: {e}"})
                 continue
 
-            m.update({"name": name, "code": code, "aum": aum})
+            # Attach TER from AMFI map
+            m["ter"] = ter_map.get(code)   # None if unavailable
 
-            # ── Gate: Rolling return consistency (active only) ───────────
+            m.update({"name": name, "code": code, "aum": aum})
+            all_computed.append(m)
+
+            # ── Active-only Phase 2 gates ─────────────────────────────────
             if not is_passive:
+
+                # Gate: Rolling return consistency
                 rc = m.get("rolling_consistency")
                 if rc is not None and not np.isnan(rc) and rc < ROLLING_CONSISTENCY_MIN:
-                    print(f"{prefix} CUT    {name[:50]} — rolling {rc:.0%} < {ROLLING_CONSISTENCY_MIN:.0%}")
-                    eliminated.append({**fund, **m, "reason": f"Rolling consistency {rc:.0%} below threshold"})
-                    continue
-                    
-                # ── Gate: Absolute Return Consistency (Advisorkhoj method) ───
-                from config import ABSOLUTE_RETURN_MIN_PCT, CAPITAL_PROTECTION_MAX
-                ac = m.get("absolute_consistency")
-                if ac is not None and not np.isnan(ac) and ac < ABSOLUTE_RETURN_MIN_PCT:
-                    print(f"{prefix} CUT    {name[:50]} — abs return < target in {1-ac:.0%} of windows")
-                    eliminated.append({**fund, **m, "reason": f"Absolute return consistency {ac:.0%} below {ABSOLUTE_RETURN_MIN_PCT:.0%}"})
-                    continue
-                    
-                cp = m.get("capital_protection")
-                if cp is not None and not np.isnan(cp) and cp > CAPITAL_PROTECTION_MAX:
-                    print(f"{prefix} CUT    {name[:50]} — negative returns in {cp:.0%} of windows")
-                    eliminated.append({**fund, **m, "reason": f"Negative returns {cp:.0%} above max {CAPITAL_PROTECTION_MAX:.0%}"})
-                    continue
-            # ── Gate: Down-market capture (active only) ──────────────────
-            if not is_passive and dc_max is not None:
-                dc = m.get("down_capture")
-                if dc is not None and not np.isnan(dc) and dc > dc_max:
-                    print(f"{prefix} CUT    {name[:50]} — down capture {dc:.1f} > {dc_max}")
-                    eliminated.append({**fund, **m, "reason": f"Down capture {dc:.1f} > threshold {dc_max}"})
+                    print(f"{prefix} CUT    {name[:52]} — rolling {rc:.0%} < {ROLLING_CONSISTENCY_MIN:.0%}")
+                    eliminated.append({**fund, **m,
+                                       "reason": f"Rolling consistency {rc:.0%} < threshold {ROLLING_CONSISTENCY_MIN:.0%}"})
                     continue
 
-            print(f"{prefix} PASS   {name[:50]}")
+                # Gate: Absolute return consistency (Advisorkhoj)
+                ac = m.get("absolute_consistency")
+                if ac is not None and not np.isnan(ac) and ac < ABSOLUTE_RETURN_MIN_PCT:
+                    print(f"{prefix} CUT    {name[:52]} — abs return < 12% in {1-ac:.0%} of windows")
+                    eliminated.append({**fund, **m,
+                                       "reason": f"Absolute return consistency {ac:.0%} < {ABSOLUTE_RETURN_MIN_PCT:.0%}"})
+                    continue
+
+                # Gate: Capital protection
+                cp = m.get("capital_protection")
+                if cp is not None and not np.isnan(cp) and cp > CAPITAL_PROTECTION_MAX:
+                    print(f"{prefix} CUT    {name[:52]} — negative returns in {cp:.0%} of windows")
+                    eliminated.append({**fund, **m,
+                                       "reason": f"Negative return windows {cp:.0%} > max {CAPITAL_PROTECTION_MAX:.0%}"})
+                    continue
+
+                # Gate: Upside Capture (NEW in v3)
+                uc = m.get("up_capture")
+                if uc is not None and not np.isnan(uc) and uc < UP_CAPTURE_MIN:
+                    print(f"{prefix} CUT    {name[:52]} — up capture {uc:.1f} < {UP_CAPTURE_MIN}")
+                    eliminated.append({**fund, **m,
+                                       "reason": f"Upside capture {uc:.1f} < minimum {UP_CAPTURE_MIN}"})
+                    continue
+
+                # Gate: Down-market capture
+                if dc_max is not None:
+                    dc = m.get("down_capture")
+                    if dc is not None and not np.isnan(dc) and dc > dc_max:
+                        print(f"{prefix} CUT    {name[:52]} — down capture {dc:.1f} > {dc_max}")
+                        eliminated.append({**fund, **m,
+                                           "reason": f"Down capture {dc:.1f} > threshold {dc_max}"})
+                        continue
+
+            print(f"{prefix} PASS   {name[:52]}")
             passed.append(m)
 
         total_passed = len(passed)
-        print(f"\n  Phase 2 result: {total_passed}/{total_found} funds passed")
+        print(f"\n  Phase 2: {total_passed}/{total_found} passed")
+
+        # Compute category percentiles across ALL computed funds (not just passed)
+        if all_computed:
+            all_computed = compute_category_percentiles(all_computed)
+            # Sync percentile back to passed list
+            pct_map = {f["code"]: f.get("rolling_category_percentile") for f in all_computed}
+            for f in passed:
+                f["rolling_category_percentile"] = pct_map.get(f["code"])
+
+        # Category average metrics (for UI display)
+        category_avg = _compute_category_avg(all_computed)
 
         if not passed:
-            print(f"  [WARN] Zero funds passed Phase 2 — relaxing rolling consistency gate for this run.")
-            # Fallback: keep any fund that had successful metric computation
-            passed = [f for f in eliminated if "cagr_5y" in f]
+            print(f"  [WARN] Zero funds passed Phase 2 — using metric-computed fallback")
+            passed = [f for f in all_computed if "cagr_5y" in f and f.get("cagr_5y") is not None]
 
-        # ── Step 4: Phase 3 — Weighted Scoring ───────────────────────────
+        # ── Step 4: Manager change proxy flags ────────────────────────────
+        for f in passed:
+            proxy = _check_manager_change_proxy(f, passed)
+            f.update(proxy)
+
+        # ── Step 5: Beta context flag ─────────────────────────────────────
+        for f in passed:
+            beta = f.get("beta")
+            if beta is not None and not np.isnan(beta) and beta > 1.3:
+                f["beta_flag"] = True
+                f["beta_flag_reason"] = (
+                    f"Beta {beta:.2f} — fund amplifies market moves by {beta:.0%}. "
+                    f"Verify this is intentional and not capturing undue risk."
+                )
+            else:
+                f["beta_flag"] = False
+                f["beta_flag_reason"] = None
+
+        # ── Step 6: Phase 3 — Weighted Scoring ───────────────────────────
         if is_passive:
-            # Sort passive funds by tracking error (lower = better)
             for f in passed:
-                te = f.get("tracking_error")
-                f["total_score"] = (1.0 / te) if (te and te > 0) else 0.0
+                f["total_score"] = _compute_passive_score(f)
             ranked = sorted(passed, key=lambda x: x.get("tracking_error") or 999)
         else:
             for f in passed:
@@ -231,12 +340,20 @@ def run_screening() -> dict[str, dict]:
 
         top_n_funds = ranked[:TOP_N]
 
-        print(f"\n  TOP {TOP_N} for [{category}]:")
+        print(f"\n  TOP {TOP_N} [{category}]:")
         for rank, f in enumerate(top_n_funds, 1):
-            rc  = f.get("rolling_consistency")
-            sc  = f.get("total_score", 0)
+            rc   = f.get("rolling_consistency")
+            uc   = f.get("up_capture")
+            dc   = f.get("down_capture")
+            sc   = f.get("total_score", 0)
+            pct  = f.get("rolling_category_percentile")
+            mngr = "⚠ MANAGER FLAG" if f.get("manager_flag") else ""
+            beta_fl = "⚠ HIGH BETA" if f.get("beta_flag") else ""
             print(f"  #{rank}: {f['name'][:58]}")
-            if rc: print(f"       Rolling: {rc:.0%}  Score: {sc:.2f}/4.00")
+            print(f"       Score: {sc:.2f}/4.00 | Rolling: {rc:.0%} ({pct:.0f}th pct)" if rc and pct else
+                  f"       Score: {sc:.2f}/4.00")
+            print(f"       Up: {uc:.1f} | Down: {dc:.1f}" if uc and dc else "", end="")
+            print(f"  {mngr} {beta_fl}")
 
         results[category] = {
             "top_funds":            top_n_funds,
@@ -244,31 +361,44 @@ def run_screening() -> dict[str, dict]:
             "total_found":          total_found,
             "total_passed_phase2":  total_passed,
             "is_passive":           is_passive,
+            "category_avg":         category_avg,
         }
 
-    # Save structured results to JSON for frontend
-    out_dir = Path("./output")
+    # ── Save JSON ─────────────────────────────────────────────────────────
+    out_dir  = Path("./output")
     out_dir.mkdir(exist_ok=True)
     json_path = out_dir / "latest_results.json"
-    
-    # Need to clean data for JSON (handle dates/NaNs if any remains, though metrics handles it)
-    # But wait, 'top_funds' and 'eliminated' are list of dicts.
-    # We should serialize them carefully.
-    
-    # We will let the caller handle saving or do it here.
-    # The user asked: "for each step i want the data to be saved"
-    # So saving here is good.
-    import json
-    
+
     class NpEncoder(json.JSONEncoder):
         def default(self, obj):
-            if isinstance(obj, np.integer): return int(obj)
+            if isinstance(obj, np.integer):  return int(obj)
             if isinstance(obj, np.floating): return float(obj)
-            if isinstance(obj, np.ndarray): return obj.tolist()
-            return super(NpEncoder, self).default(obj)
-            
+            if isinstance(obj, np.ndarray):  return obj.tolist()
+            return super().default(obj)
+
     with open(json_path, "w") as f:
         json.dump(results, f, cls=NpEncoder, indent=2)
-    print(f"\n  Data saved to {json_path}")
+    print(f"\n  Results saved → {json_path}")
 
     return results
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Category Average Helper
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _compute_category_avg(fund_list: list[dict]) -> dict:
+    """
+    Computes category-wide average for key metrics.
+    Used in the UI to show "Category Average" row for context.
+    """
+    keys = [
+        "cagr_5y", "rolling_consistency", "sortino", "down_capture",
+        "up_capture", "max_drawdown", "info_ratio", "ter"
+    ]
+    avg = {}
+    for key in keys:
+        vals = [f.get(key) for f in fund_list
+                if f.get(key) is not None and not (isinstance(f.get(key), float) and np.isnan(f.get(key)))]
+        avg[key] = float(np.mean(vals)) if vals else None
+    return avg
