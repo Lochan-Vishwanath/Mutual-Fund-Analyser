@@ -23,15 +23,6 @@ DATA_PATH = Path("output/latest_results.json")
 def load_data():
     if DATA_PATH.exists():
         try:
-            with st.spinner("Loading data..."):
-                with open(DATA_PATH, "r") as f:
-                    return json.load(f)
-        except:
-            pass
-    return None
-
-    if DATA_PATH.exists():
-        try:
             with open(DATA_PATH, "r") as f:
                 return json.load(f)
         except:
@@ -43,20 +34,13 @@ def run_analysis(force=False):
     if not force and DATA_PATH.exists():
         file_date = date.fromtimestamp(DATA_PATH.stat().st_mtime)
         if file_date == date.today():
-            st.success(f"✅ Loaded cached analysis from today ({file_date}). Use 'Force Run' to refresh.")
+            st.success(f"✅ Loaded cached analysis from today ({file_date}).")
             results = load_data()
             st.session_state["results"] = results
             return
 
-    with st.spinner("Running full screening… This takes 5–15 minutes depending on category size."):
-        # Load previous results for continuity check
-        prev_results = None
-        if DATA_PATH.exists():
-            try:
-                with open(DATA_PATH, "r") as f:
-                    prev_results = json.load(f)
-            except: pass
-            
+    with st.spinner("Running full screening… This takes 5–15 minutes."):
+        prev_results = load_data()
         results = run_screening(previous_results=prev_results)
         st.session_state["results"] = results
         st.success("✅ Analysis complete!")
@@ -81,11 +65,10 @@ def _fmt(val, pct=False, decimals=2, na="—"):
 
 def _render_active_table(top_funds: list, eliminated: list, category_avg: dict, category: str):
     if not top_funds:
-        st.warning("⚠️ No funds passed all Phase 2 criteria for this category.")
+        st.warning(f"⚠️ No funds passed criteria for {category}.")
         return
 
     st.subheader("🏆 Top Performers")
-
     rows = []
     for rank, f in enumerate(top_funds, 1):
         name = f.get("name", "—")
@@ -94,68 +77,52 @@ def _render_active_table(top_funds: list, eliminated: list, category_avg: dict, 
         cont_badge = f" {f.get('continuity_status')}" if f.get("continuity_status") else ""
         
         rows.append({
-            "Rank":          f"#{rank}",
-            "Fund":          name[:60] + cont_badge + mngr_warn + beta_warn,
-            "Score":         f.get("total_score"),
-            "Cat Pct":       f.get("rolling_category_percentile"),
+            "Rank": f"#{rank}",
+            "Fund": name[:60] + cont_badge + mngr_warn + beta_warn,
+            "Score": f.get("total_score"),
+            "Cat Pct": f.get("rolling_category_percentile"),
             "Rolling Cons.": f.get("rolling_consistency"),
-            "Up Capture":    f.get("up_capture"),
-            "Down Capture":  f.get("down_capture"),
-            "Sortino":       f.get("sortino"),
-            "5Y CAGR":       f.get("cagr_5y"),
-            "10Y CAGR":      f.get("cagr_10y"),
-            "Max DD":        f.get("max_drawdown"),
-            "Alpha":         f.get("alpha"),
-            "Beta":          f.get("beta"),
-            "TER %":         f.get("ter"),
-            "AUM (Cr)":      f.get("aum"),
+            "Up Capture": f.get("up_capture"),
+            "Down Capture": f.get("down_capture"),
+            "Sortino": f.get("sortino"),
+            "5Y CAGR": f.get("cagr_5y"),
+            "10Y CAGR": f.get("cagr_10y"),
+            "Max DD": f.get("max_drawdown"),
+            "Alpha": f.get("alpha"),
+            "Beta": f.get("beta"),
+            "TER %": f.get("ter"),
+            "AUM (Cr)": f.get("aum"),
         })
 
     if category_avg:
         rows.append({
-            "Rank":          "AVG",
-            "Fund":          "◆ Category Average",
-            "Score":         None,
-            "Cat Pct":       None,
+            "Rank": "AVG", "Fund": "◆ Category Average", "Score": None, "Cat Pct": None,
             "Rolling Cons.": category_avg.get("rolling_consistency"),
-            "Up Capture":    category_avg.get("up_capture"),
-            "Down Capture":  category_avg.get("down_capture"),
-            "Sortino":       category_avg.get("sortino"),
-            "5Y CAGR":       category_avg.get("cagr_5y"),
-            "10Y CAGR":      None,
-            "Max DD":        category_avg.get("max_drawdown"),
-            "Alpha":         None,
-            "Beta":          None,
-            "TER %":         category_avg.get("ter"),
-            "AUM (Cr)":      None,
+            "Up Capture": category_avg.get("up_capture"), "Down Capture": category_avg.get("down_capture"),
+            "Sortino": category_avg.get("sortino"), "5Y CAGR": category_avg.get("cagr_5y"),
+            "10Y CAGR": None, "Max DD": category_avg.get("max_drawdown"),
+            "Alpha": None, "Beta": None, "TER %": category_avg.get("ter"), "AUM (Cr)": None,
         })
 
     def fmt_row(row):
         return {
-            "Rank":          row["Rank"],
-            "Fund":          row["Fund"],
-            "Score":         _fmt(row["Score"]),
-            "Cat Pct":       f"{row['Cat Pct']:.0f}th" if row["Cat Pct"] is not None else "—",
+            "Rank": row["Rank"], "Fund": row["Fund"], "Score": _fmt(row["Score"]),
+            "Cat Pct": f"{row['Cat Pct']:.0f}th" if row["Cat Pct"] is not None else "—",
             "Rolling Cons.": _fmt(row["Rolling Cons."], pct=True),
-            "Up Capture":    _fmt(row["Up Capture"], decimals=1),
-            "Down Capture":  _fmt(row["Down Capture"], decimals=1),
-            "Sortino":       _fmt(row["Sortino"]),
-            "5Y CAGR":       _fmt(row["5Y CAGR"], pct=True),
-            "10Y CAGR":      _fmt(row["10Y CAGR"], pct=True),
-            "Max DD":        _fmt(row["Max DD"], pct=True),
-            "Alpha":         _fmt(row["Alpha"], pct=True),
-            "Beta":          _fmt(row["Beta"]),
-            "TER %":         _fmt(row["TER %"]),
-            "AUM (Cr)":      f"₹{row['AUM (Cr)']:,.0f}" if row["AUM (Cr)"] else "—",
+            "Up Capture": _fmt(row["Up Capture"], decimals=1),
+            "Down Capture": _fmt(row["Down Capture"], decimals=1),
+            "Sortino": _fmt(row["Sortino"]),
+            "5Y CAGR": _fmt(row["5Y CAGR"], pct=True),
+            "10Y CAGR": _fmt(row["10Y CAGR"], pct=True),
+            "Max DD": _fmt(row["Max DD"], pct=True),
+            "Alpha": _fmt(row["Alpha"], pct=True),
+            "Beta": _fmt(row["Beta"]), "TER %": _fmt(row["TER %"]),
+            "AUM (Cr)": f"₹{row['AUM (Cr)']:,.0f}" if row["AUM (Cr)"] else "—",
         }
 
     df_display = pd.DataFrame([fmt_row(r) for r in rows])
-
     def highlight_row(row):
-        styles = [""] * len(row)
-        if row["Rank"] == "AVG":
-            return ["background-color: #eef2f7; font-style: italic"] * len(row)
-        return styles
+        return ["background-color: #eef2f7; font-style: italic"] * len(row) if row["Rank"] == "AVG" else [""] * len(row)
 
     st.dataframe(df_display.style.apply(highlight_row, axis=1), use_container_width=True, hide_index=True)
 
@@ -165,86 +132,64 @@ def _render_active_table(top_funds: list, eliminated: list, category_avg: dict, 
         if f.get("beta_flag"):
             st.info(f"ℹ️ **High Beta** — {f['name'][:55]}: {f.get('beta_flag_reason')}")
 
-    with st.expander("📋 Manual Checks Required Before Investing"):
+    with st.expander("📋 Manual Verification Checklist"):
         st.markdown("""
-For each fund in the top 3, **manually verify** on the AMC's factsheet or Value Research / Morningstar:
-
-1. **Fund Manager Tenure**: Is the same manager listed who built this track record? Manager changes invalidate historical metrics.
-2. **Sector Concentration**: No single sector > 35% of portfolio?
-3. **Stock Concentration**: Top-10 holdings < 70% of portfolio? (High = concentrated, single-stock risk)
-4. **Portfolio P/E vs Category**: Is the fund's portfolio P/E in line with peers?
-5. **SEBI Stress Test** (Mid/Small Cap only): Check how many days to liquidate 50% of the portfolio.
-6. **Exit Load & Lock-in**: Verify exit load period before switching.
-7. **Tax Impact**: If switching, compute LTCG/STCG before acting.
+1. **Fund Manager Tenure**: Is the manager who built the track record still there? (< 3y = risk).
+2. **Sector Concentration**: No single sector > 35% of portfolio.
+3. **Stock Concentration**: Top-10 holdings < 60% (avoid high conviction risk).
+4. **Portfolio P/E**: Compare fund P/E vs benchmark P/E. Gap > 30% indicates style drift.
+5. **SEBI Stress Test**: (Mid/Small Cap) Check days to liquidate 50% of portfolio.
+6. **Switching Cost**: Always calculate Exit Load + LTCG/STCG impact before switching.
         """)
 
     if eliminated:
-        reason_counts = {}
-        for f in eliminated:
-            reason = f.get("reason", "Unknown")[:50]
-            reason_counts[reason] = reason_counts.get(reason, 0) + 1
-
         with st.expander(f"❌ Eliminated Funds ({len(eliminated)}) — click to expand"):
-            st.markdown("**Elimination Reasons:**")
-            for reason, count in sorted(reason_counts.items(), key=lambda x: -x[1])[:10]:
-                st.markdown(f"- {reason}: **{count}** fund(s)")
-            st.divider()
             df_elim = pd.DataFrame([{"Fund": f.get("name", "")[:60], "Reason": f.get("reason", "")} for f in eliminated])
             st.dataframe(df_elim, use_container_width=True, hide_index=True)
 
 def _render_passive_table(top_funds: list, eliminated: list, category: str):
     if not top_funds:
-        st.warning("⚠️ No passive funds found for this category.")
+        st.warning(f"⚠️ No passive funds for {category}.")
         return
 
     st.subheader("🏆 Top Index Funds (Ranked by Tracking Error)")
-
     rows = []
     for rank, f in enumerate(top_funds, 1):
         rows.append({
-            "Rank":               f"#{rank}",
-            "Fund":               f.get("name", "—")[:65],
-            "Tracking Error %":   _fmt(f.get("tracking_error")),
-            "3Y CAGR":            _fmt(f.get("cagr_3y"), pct=True),
-            "5Y CAGR":            _fmt(f.get("cagr_5y"), pct=True),
-            "Sharpe":             _fmt(f.get("sharpe")),
-            "Max DD":             _fmt(f.get("max_drawdown"), pct=True),
-            "TER %":              _fmt(f.get("ter")),
-            "AUM (Cr)":           f"₹{f.get('aum', 0):,.0f}" if f.get("aum") else "—",
+            "Rank": f"#{rank}", "Fund": f.get("name", "—")[:65],
+            "Tracking Error %": _fmt(f.get("tracking_error")),
+            "3Y CAGR": _fmt(f.get("cagr_3y"), pct=True),
+            "5Y CAGR": _fmt(f.get("cagr_5y"), pct=True),
+            "Sharpe": _fmt(f.get("sharpe")),
+            "Max DD": _fmt(f.get("max_drawdown"), pct=True),
+            "TER %": _fmt(f.get("ter")),
+            "AUM (Cr)": f"₹{f.get('aum', 0):,.0f}" if f.get("aum") else "—",
         })
 
     st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
-
-    with st.expander(f"❌ Eliminated ({len(eliminated)})"):
-        if eliminated:
-            st.dataframe(
-                pd.DataFrame([{"Fund": f.get("name","")[:60], "Reason": f.get("reason","")} for f in eliminated]),
-                use_container_width=True, hide_index=True
-            )
+    if eliminated:
+        with st.expander(f"❌ Eliminated ({len(eliminated)})"):
+            st.dataframe(pd.DataFrame([{"Fund": f.get("name","")[:60], "Reason": f.get("reason","")} for f in eliminated]), use_container_width=True, hide_index=True)
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Main UI
+# Main UI Flow
 # ─────────────────────────────────────────────────────────────────────────────
 
 st.title("📈 MF Master Plan v3 — Quarterly Screener")
-st.markdown(
-    "Automated mutual fund screening: Phase 2 elimination + Phase 3 weighted scoring. "
-    "Every Direct Growth fund in each SEBI category is screened. No manual candidate lists."
-)
+st.markdown("Automated Mutual Fund screening based on v3 strategy: Risk-adjusted returns, Consistency, and Capture ratios.")
 
-# ── Controls ─────────────────────────────────────────────────────────────────
-ctrl_col1, ctrl_col2, ctrl_col3, ctrl_col4 = st.columns([1, 1, 1, 3])
-with ctrl_col1:
-    if st.button("🚀 Run Analysis", help="Runs only if no data for today"):
+# -- Control Bar --
+c1, c2, c3, _ = st.columns([1, 1, 1, 3])
+with c1:
+    if st.button("🚀 Run Analysis", help="Checks if data from today exists first"):
         run_analysis(force=False)
-
-with ctrl_col2:
-    if st.button("🔄 Force Re-run", help="Force fresh analysis even if data exists"):
+with c2:
+    if st.button("🔄 Force Re-run", help="Fetch fresh data from API immediately"):
         run_analysis(force=True)
 
 results = load_data()
 
-with ctrl_col3:
+with c3:
     if results and st.button("📧 Send Email", use_container_width=True):
         send_report_email(results)
 
@@ -252,143 +197,97 @@ if not results:
     st.info("No analysis data found. Click **Run Analysis** to start.")
     st.stop()
 
-st.markdown("---")
-
-# ── Summary Metrics ───────────────────────────────────────────────────────────
-total_screened = sum(cat.get("total_found", 0) for cat in results.values())
-total_passed   = sum(cat.get("total_passed_phase2", 0) for cat in results.values())
-
-m1, m2, m3, m4 = st.columns(4)
-m1.metric("Funds Screened",      total_screened)
-m2.metric("Qualified (Phase 2)", total_passed)
-m3.metric("Eliminated",          total_screened - total_passed)
-m4.metric("Last Run",            date.fromtimestamp(DATA_PATH.stat().st_mtime).strftime("%d %b %Y") if DATA_PATH.exists() else "Never")
-
-st.markdown("---")
-
-# ── Nifty P/E Signal ─────────────────────────────────────────────────────────
-try:
-    pe_val = get_nifty_pe()
-    if pe_val:
-        from config import PE_THRESHOLDS
-        if pe_val >= PE_THRESHOLDS["overvalued"]:
-            pe_signal, pe_color = f"🔴 OVERVALUED (P/E {pe_val:.1f}x) — SIPs only, no lump sum", "error"
-        elif pe_val >= PE_THRESHOLDS["fair_high"]:
-            pe_signal, pe_color = f"🟡 FAIR TO HIGH (P/E {pe_val:.1f}x) — Hold arbitrage buffer", "warning"
-        elif pe_val >= PE_THRESHOLDS["fair_value"]:
-            pe_signal, pe_color = f"🟢 FAIR VALUE (P/E {pe_val:.1f}x) — Deploy 25% of buffer", "success"
-        else:
-            pe_signal, pe_color = f"🟢 ATTRACTIVE (P/E {pe_val:.1f}x) — Deploy aggressively", "success"
-
-        if pe_color == "error":     st.error(f"**Deployment Signal:** {pe_signal}")
-        elif pe_color == "warning": st.warning(f"**Deployment Signal:** {pe_signal}")
-        else:                       st.success(f"**Deployment Signal:** {pe_signal}")
-except Exception:
-    pass
-
-# ── Process Categories ───────────────────────────────────────────────────────
-passive_cats = {k: v for k, v in results.items() if v.get("is_passive")}
-active_cats  = {k: v for k, v in results.items() if not v.get("is_passive")}
-
-# ── Special: Large Cap Active vs Passive Comparison ─────────────────────────
-lc_active  = results.get("Large Cap (Active)")
-lc_passive = results.get("Large Cap (Passive)")
-
-# Remove from standard lists
-if lc_active:  active_cats.pop("Large Cap (Active)", None)
-if lc_passive: passive_cats.pop("Large Cap (Passive)", None)
-# Legacy key cleanup
-passive_cats.pop("Large Cap / Index (Passive)", None) 
-
-if lc_active or lc_passive:
-    st.markdown("## ⚔️ Large Cap: Active vs Passive")
-    st.info("Direct comparison of top Active Managers vs low-cost Index Funds.")
+# -- Main Dashboard Section (Wrapped in Loader) --
+with st.spinner("Fetching and preparing data..."):
+    st.markdown("---")
     
-    col_act, col_pas = st.columns(2)
+    # 1. Summary Metrics
+    total_screened = sum(cat.get("total_found", 0) for cat in results.values())
+    total_passed   = sum(cat.get("total_passed_phase2", 0) for cat in results.values())
     
-    with col_act:
-        st.markdown("### 🧠 Active Managers")
-        if lc_active:
-            _render_active_table(
-                lc_active.get("top_funds", []),
-                lc_active.get("eliminated", []),
-                lc_active.get("category_avg", {}),
-                "Large Cap (Active)"
-            )
-        else:
-            st.warning("No Active Large Cap results.")
+    m1, m2, m3, m4 = st.columns(4)
+    m1.metric("Funds Screened", total_screened)
+    m2.metric("Qualified", total_passed)
+    m3.metric("Eliminated", total_screened - total_passed)
+    last_run_dt = date.fromtimestamp(DATA_PATH.stat().st_mtime) if DATA_PATH.exists() else None
+    m4.metric("Last Run", last_run_dt.strftime("%d %b %Y") if last_run_dt else "Never")
 
-    with col_pas:
-        st.markdown("### 🤖 Passive / Index")
-        if lc_passive:
-            _render_passive_table(
-                lc_passive.get("top_funds", []),
-                lc_passive.get("eliminated", []),
-                "Large Cap (Passive)"
-            )
-        else:
-            st.warning("No Passive Large Cap results.")
-    
-    st.divider()
+    # 2. Deployment Signal
+    try:
+        pe_val = get_nifty_pe()
+        if pe_val:
+            from config import PE_THRESHOLDS
+            if pe_val >= PE_THRESHOLDS["overvalued"]:
+                st.error(f"**Deployment Signal:** 🔴 OVERVALUED (P/E {pe_val:.1f}x) — SIPs only, no lump sum")
+            elif pe_val >= PE_THRESHOLDS["fair_high"]:
+                st.warning(f"**Deployment Signal:** 🟡 FAIR TO HIGH (P/E {pe_val:.1f}x) — Hold arbitrage buffer")
+            elif pe_val >= PE_THRESHOLDS["fair_value"]:
+                st.success(f"**Deployment Signal:** 🟢 FAIR VALUE (P/E {pe_val:.1f}x) — Deploy 25% of buffer")
+            else:
+                st.success(f"**Deployment Signal:** 🟢 ATTRACTIVE (P/E {pe_val:.1f}x) — Deploy aggressively")
+    except:
+        pass
 
-# ── Active Funds Tabs ───────────────────────────────────────────────────────
-if active_cats:
-    st.markdown("## 🧠 Active Funds")
-    act_tabs = st.tabs(list(active_cats.keys()))
-    for i, (cat, data) in enumerate(active_cats.items()):
-        with act_tabs[i]:
-            col_a, col_b, col_c = st.columns(3)
-            col_a.metric("Screened",   data.get("total_found", 0))
-            col_b.metric("Qualified",  data.get("total_passed_phase2", 0))
-            col_c.metric("Top Shown",  min(3, len(data.get("top_funds", []))))
-            _render_active_table(
-                data.get("top_funds", []),
-                data.get("eliminated", []),
-                data.get("category_avg", {}),
-                cat,
-            )
+    st.markdown("---")
 
-# ── Passive Funds Tabs ──────────────────────────────────────────────────────
-if passive_cats:
-    st.markdown("## 📊 Passive / Index Funds")
-    pass_tabs = st.tabs(list(passive_cats.keys()))
-    for i, (cat, data) in enumerate(passive_cats.items()):
-        with pass_tabs[i]:
-            col_a, col_b, col_c = st.columns(3)
-            col_a.metric("Screened",   data.get("total_found", 0))
-            col_b.metric("Qualified",  data.get("total_passed_phase2", 0))
-            col_c.metric("Top Shown",  min(3, len(data.get("top_funds", []))))
-            _render_passive_table(
-                data.get("top_funds", []),
-                data.get("eliminated", []),
-                cat,
-            )
+    # 3. Process categories
+    passive_cats = {k: v for k, v in results.items() if v.get("is_passive")}
+    active_cats  = {k: v for k, v in results.items() if not v.get("is_passive")}
 
-# ── Methodology Explainer ───────────────────────────────────────────────────
+    # -- Special: Large Cap Active vs Passive Comparison --
+    lc_active  = results.get("Large Cap (Active)")
+    lc_passive = results.get("Large Cap (Passive)")
+
+    if lc_active:  active_cats.pop("Large Cap (Active)", None)
+    if lc_passive: passive_cats.pop("Large Cap (Passive)", None)
+    passive_cats.pop("Large Cap / Index (Passive)", None) 
+
+    if lc_active or lc_passive:
+        st.markdown("## ⚔️ Large Cap: Active vs Passive")
+        col_act, col_pas = st.columns(2)
+        with col_act:
+            st.markdown("### 🧠 Active Managers")
+            if lc_active: _render_active_table(lc_active.get("top_funds", []), lc_active.get("eliminated", []), lc_active.get("category_avg", {}), "Large Cap (Active)")
+            else: st.warning("No results.")
+        with col_pas:
+            st.markdown("### 🤖 Passive / Index")
+            if lc_passive: _render_passive_table(lc_passive.get("top_funds", []), lc_passive.get("eliminated", []), "Large Cap (Passive)")
+            else: st.warning("No results.")
+        st.divider()
+
+    # -- Active Category Tabs --
+    if active_cats:
+        st.markdown("## 🧠 Active Funds")
+        act_tabs = st.tabs(list(active_cats.keys()))
+        for i, (cat, data) in enumerate(active_cats.items()):
+            with act_tabs[i]:
+                _render_active_table(data.get("top_funds", []), data.get("eliminated", []), data.get("category_avg", {}), cat)
+
+    # -- Passive Category Tabs --
+    if passive_cats:
+        st.markdown("## 📊 Passive / Index Funds")
+        pass_tabs = st.tabs(list(passive_cats.keys()))
+        for i, (cat, data) in enumerate(passive_cats.items()):
+            with pass_tabs[i]:
+                _render_passive_table(data.get("top_funds", []), data.get("eliminated", []), cat)
+
+# -- Methodology Explainer (outside main spinner to keep it clean) --
 with st.expander("ℹ️ How Scoring Works (v3 Strategy)"):
     st.markdown("""
 ### Phase 2 — Hard Elimination Gates
-Any fund failing even one gate is eliminated:
+- **History**: ≥ 5 years NAV data.
+- **AUM**: Category-specific bounds.
+- **Sharpe**: Disqualify if negative.
+- **Rolling Consistency**: Beats benchmark ≥ 65% of windows.
+- **Upside Capture**: Participation ratio ≥ 80.
+- **Downside Capture**: Within category threshold.
 
-| Gate | Threshold |
-|---|---|
-| History | ≥ 5 years NAV data |
-| AUM | Category-specific min/max bounds |
-| Rolling Consistency | ≥ 65% of 3Y windows beat benchmark |
-| Absolute Consistency | ≥ 70% of 3Y windows achieve ≥ 12% CAGR |
-| Capital Protection | ≤ 5% of 3Y windows have negative returns |
-| **Upside Capture (NEW)** | **≥ 80 — must participate in benchmark rallies** |
-| Down-Market Capture | Category-specific max (95–105) |
-
-### Phase 3 — Weighted Scoring (Survivors Only)
-
-| Metric | Weight | Direction |
-|---|---|---|
-| Rolling Consistency | 18% | Higher = better |
-| Sortino Ratio | 20% | Higher = better |
-| Information Ratio | 15% | Higher = better |
-| **Upside Capture (NEW)** | **18%** | **Higher = better** |
-| Down Capture | 15% | Lower = better |
-| Max Drawdown | 9% | Less negative = better |
-| **TER / Expense Ratio (NEW)** | **5%** | **Lower = better** |
+### Phase 3 — Weighted Scoring
+- **Sortino**: 20%
+- **Rolling Cons.**: 18%
+- **Upside Capture**: 18%
+- **Info Ratio**: 15%
+- **Down Capture**: 15%
+- **Max DD**: 9%
+- **TER**: 5%
 """)
