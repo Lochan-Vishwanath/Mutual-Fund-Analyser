@@ -99,6 +99,22 @@ The tool will flag these in the Email/UI for the Top 3 funds. You MUST verify th
 
 ---
 
+## ⚔️ Special: Large Cap Active vs Passive
+The tool identifies the inherent difficulty for active managers in the Large Cap space. It provides a dedicated **Winner's Circle** comparison:
+- **Active Managers** are screened for Alpha and Consistency.
+- **Passive Index Funds** are screened for low Tracking Error and Cost.
+This helps you decide if it's worth paying active fees for potential alpha or simply tracking the index.
+
+---
+
+## ⚡ Performance & Caching
+- **Smart Loading**: The UI checks if an analysis was already run today. If so, it loads the results instantly from cache, saving time and API resources.
+- **Force Re-run**: You can override the cache with a single click if you need fresh mid-day data.
+- **Visual Feedback**: Real-time loaders (spinners) indicate when data is being fetched or prepared.
+
+---
+
+
 ## 📂 Project Structure
 - `app.py`: Streamlit Web Dashboard (Run Analysis, View Results, Send Email).
 - `config.py`: EDIT THIS for categories, thresholds, email, and weights.
