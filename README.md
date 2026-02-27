@@ -1,138 +1,135 @@
-# MF Master Plan Tool 🇮🇳
-**Automated quarterly screening across ALL Indian mutual funds with Advisorkhoj-style Absolute Return logic.**
+# 📈 MF Master Plan: The Unified Fund Selection Strategy (v3) 🇮🇳
 
-No more manual candidate lists. Every quarter, the tool fetches every Direct Growth fund in each SEBI category from AMFI, runs a rigorous Phase 2 (Elimination) + Phase 3 (Scoring) strategy, and presents the top 3 per category.
+**The definitive automated screening system for Indian Mutual Funds.**  
+*Built for consistency, engineered for risk protection, and designed to kill the wealth-destroying cycle of serial switching.*
 
 ---
 
-## 🚀 Quick Start
+## 🏛 Foundational Philosophy
 
-### 1. Install Dependencies
+Two things kill retail investor returns more than bad fund selection:
+1.  **Switching Costs**: Chasing the current rank-1 fund creates exit loads, capital gains tax, and disrupted compounding.
+2.  **Trailing Return Illusion**: Selecting funds based on distorted base periods (like post-Covid recoveries) gives a false sense of alpha.
+
+This tool implements a **Unified Strategy** (v3) that combines absolute return distribution logic, a rigorous risk framework, and practical behavioral safeguards to find funds you can hold with confidence for 5+ years.
+
+---
+
+## ⚔️ Key Features
+
+### 1. Large Cap "Winner's Circle" (Active vs Passive)
+Over any 10-year window, ~85% of active large-cap funds underperform the Nifty 50 TRI.
+- The UI provides a **side-by-side comparison** of top-tier Active Managers vs low-cost Index Funds.
+- **Active Funds** are scored on Alpha, Information Ratio, and Consistency.
+- **Passive Funds** are ranked purely by **Tracking Error** and **Expense Ratio**.
+
+### 2. The Continuity Rule (Holdover vs. New Entrant) 🛡️
+The system remembers previous results to prevent "serial switching."
+- **Holdover 🛡️**: Fund was in the Top 3 last quarter. If it's still performing, **leave it alone**.
+- **New Entrant 🌟**: Fund is new to the Top 3. Requires the **Manual Checklist** before capital is moved.
+
+### 3. Smart Caching & Resource Efficiency ⚡
+- **Daily Cache**: The UI detects if an analysis was already run today and loads results instantly.
+- **Visual Feedback**: Real-time spinners indicate exactly when data is being fetched or prepared.
+- **Auto-Retry**: Robust handling for flaky AMFI and NSE endpoints.
+
+---
+
+## 🧠 The Screening Strategy (v3)
+
+### Phase 2: The Hard Elimination Gates
+A fund that fails **any single gate** is immediately eliminated. There is no partial credit.
+
+| Gate | Threshold | Rationale |
+| :--- | :--- | :--- |
+| **History** | ≥ 5 Years | Guarantees the fund has survived at least one full market cycle. |
+| **AUM Bounds** | ₹500Cr - ₹50kCr | Prevents liquidity risk (too small) or mandate drift (too large). |
+| **Negative Sharpe** | **Ratio > 0** | Disqualifies funds that returned less than risk-free T-bills (6.5%). |
+| **Rel. Consistency** | ≥ 65% | Fund must beat its benchmark in at least 65% of 3-year rolling windows. |
+| **Abs. Consistency** | ≥ 70% | Fund must deliver ≥ 12% CAGR in at least 70% of rolling windows. |
+| **Capital Protection** | ≤ 5% | Max 1 in 20 rolling windows can result in a loss. |
+| **Upside Capture** | ≥ 80 | Fund must participate in at least 80% of benchmark rallies. |
+| **Down Capture** | Cat. Specific | Flexi Cap (<95), Mid Cap (<100), Small Cap (<105). |
+
+### Phase 3: Multi-Dimensional Weighted Scoring
+Qualified survivors are ranked using a 1-4 quartile scale across seven dimensions:
+
+| Metric | Weight | Why it matters |
+| :--- | :--- | :--- |
+| **Rolling Consistency** | 18% | Genuine consistency vs. lucky trailing returns. |
+| **Sortino Ratio** | 20% | Return per unit of *downside* risk (preferred over Sharpe). |
+| **Upside Capture** | 18% | Participation in bull markets (don't buy "expensive defensive" funds). |
+| **Downside Capture** | 15% | Protection during market crashes. |
+| **Information Ratio** | 15% | Manager skill: consistency of excess returns over benchmark. |
+| **Max Drawdown** | 9% | Behavioral check: can you actually stomach the worst-case drop? |
+| **Expense Ratio (TER)**| 5% | Low cost wins ties. |
+
+---
+
+## 📋 Phase 4: The Manual Verification (The Human Loop)
+
+The tool performs 90% of the heavy lifting. You must manually verify these 5 points for the Top 3 funds before investing:
+
+1.  **Fund Manager Tenure**: Is the person who built the track record still at the helm? (< 3y = risk).
+2.  **Sector Concentration**: No single sector should exceed **35%** of the portfolio.
+3.  **Stock Concentration**: Top-10 holdings should be **< 60%** (avoid high conviction single-stock risk).
+4.  **Portfolio P/E**: Compare fund P/E vs benchmark. A gap **> 30%** indicates a heavy valuation bet.
+5.  **SEBI Stress Test**: (Mid/Small Cap) Check "Days to liquidate 50% of portfolio." **> 30 days** is risky.
+
+---
+
+## 🚀 Getting Started
+
+### 1. Setup Environment
 ```bash
+# Clone and install
+git clone https://github.com/YourUsername/Mutual-Fund-Analyser.git
+cd Mutual-Fund-Analyser
 pip install -r requirements.txt
+
+# Setup credentials
+cp .env.example .env
+# Edit .env with your Gmail App Password and Recipient Emails
 ```
 
-### 2. Launch the Dashboard (Recommended)
-Launch the interactive Streamlit UI to run analysis and view results visually:
+### 2. Launch the Dashboard
+The dashboard is the primary way to interact with the project. It handles caching, visualizes metrics, and allows manual email triggers.
 ```bash
 python -m streamlit run app.py
 ```
 
-### 3. CLI Usage
-```bash
-# Preview the full report in console (no email)
-python main.py --dry
-
-# Run interactively (asks before sending email)
-python main.py
-
-# Automated mode (used by GitHub Actions)
-python main.py --auto
-```
+### 3. CLI Power Tools
+- `python main.py --dry`: Preview the full report in the console without sending emails.
+- `python utils.py search "Parag Parikh"`: Find scheme codes for any fund.
+- `python utils.py verify 122639`: Run a deep health check on a specific fund.
+- `python check_env.py`: Diagnostic tool to verify your `.env` settings.
 
 ---
 
-## 🛠 Setup
+## 🤖 Automation (GitHub Actions)
+The project includes a pre-configured workflow (`.github/workflows/quarterly.yml`) that runs on the **1st of every quarter** (Jan, Apr, Jul, Oct).
 
-### 1. Set Benchmark Codes in `config.py`
-Benchmarks are index funds used to compute Alpha, Beta, Information Ratio, and Rolling Consistency. Use the CLI to find the right codes:
-```bash
-python utils.py search "Nifty Midcap 150 Index Direct Growth"
-python utils.py verify 149892   # verify the code shows 5+ years of data
-```
-
-### 2. Set Email Credentials
-In `config.py`, set your `EMAIL_SENDER` and `SUBSCRIBERS`.
-For Gmail, use an **App Password**:
-- Gmail → Account → Security → 2-Step Verification → App Passwords
-- Create password for "Mail"
-- Set as env var: `export MF_EMAIL_PASSWORD="xxxx xxxx xxxx xxxx"`
+**To enable:**
+1. Push code to a private GitHub repo.
+2. Go to Settings > Secrets > Actions.
+3. Add `MF_EMAIL_PASSWORD`, `EMAIL_SENDER`, and `SUBSCRIBERS`.
 
 ---
 
-## 🧠 How Screening Works (Strategy v3)
-
-### Phase 2 — Elimination (Hard Gates)
-1.  **History**: Must have ≥ **5 years** of NAV history.
-2.  **AUM**: Within category-specific bounds (e.g. Small Cap: ₹500Cr–₹12,000Cr).
-3.  **Negative Sharpe**: Any fund with a negative Sharpe ratio is immediately disqualified.
-4.  **Relative Consistency**: Beats benchmark in ≥ **65%** of 3-year rolling windows.
-5.  **Absolute Consistency (Advisorkhoj logic)**: Annualized return ≥ **12%** in at least **70%** of 3-year rolling windows.
-6.  **Capital Protection**: Negative returns in ≤ **5%** of 3-year rolling windows.
-7.  **Upside Capture**: Must participate in rallies (Ratio ≥ 80).
-8.  **Down-Market Capture**: Within category threshold (e.g. Mid Cap < 100).
-
-### Phase 3 — Weighted Scoring (Survivors Ranked)
-- **18%** Rolling return consistency (Relative)
-- **18%** Upside capture ratio (Higher = better)
-- **20%** Sortino ratio (Higher = better)
-- **15%** Information ratio (Higher = better)
-- **15%** Down-market capture (Lower = better)
-- **09%** Max drawdown (Less negative = better)
-- **05%** Expense Ratio / TER (Lower = better)
-
-**Passive (Index) funds:** Ranked purely by tracking error (lowest wins).
+## 📂 Architecture Overview
+- `app.py`: Streamlit Dashboard with smart caching and UI loaders.
+- `screener.py`: The heart of the system. Implements Phase 2 gates and Phase 3 scoring.
+- `metrics.py`: Financial engine (CAGR, Rolling, Sharpe, Sortino, Capture Ratios).
+- `fetcher.py`: Data ingestion from AMFI (AUM/Categories) and `mfapi.in` (NAV history).
+- `emailer.py`: Builds the "Winner's Circle" HTML reports.
+- `config.py`: Central command for weights, thresholds, and benchmark codes.
+- `utils.py`: CLI toolbox for searching codes and verifying benchmarks.
 
 ---
 
-## 🚦 Phase 5: The Continuity Rule
-
-The tool now remembers previous results to prevent "serial switching" (chasing the new #1).
-
-*   **Holdover 🛡️**: Fund was in the Top 3 last quarter and remains there. **Safe to hold.**
-*   **New Entrant 🌟**: Fund is new to the Top 3. **Verify manually before buying.**
-
-**Switching Logic:**
-> Do NOT switch just because a fund drops from #1 to #2. Only switch if a fund exits the Top 3 completely OR fails a hard gate (consistency drops, manager changes, etc.).
+## 💰 Cost: ₹0 / Month
+This system relies entirely on public AMFI data and the free `mfapi.in` service. No expensive data subscriptions required.
 
 ---
 
-## 📋 Manual Verification (The "Human Loop")
-
-The tool will flag these in the Email/UI for the Top 3 funds. You MUST verify them manually:
-
-1.  **Fund Manager Tenure**: Is the manager who built the track record still there? (< 3 years = risk).
-2.  **Sector Concentration**: No single sector > 35% of portfolio.
-3.  **Stock Concentration**: Top-10 holdings < 60% (avoid high conviction bets).
-4.  **Portfolio P/E**: Is it significantly higher (>30%) than the category average?
-5.  **SEBI Stress Test**: (Mid/Small Cap) Days to liquidate 50% of portfolio.
-
----
-
-## ⚔️ Special: Large Cap Active vs Passive
-The tool identifies the inherent difficulty for active managers in the Large Cap space. It provides a dedicated **Winner's Circle** comparison:
-- **Active Managers** are screened for Alpha and Consistency.
-- **Passive Index Funds** are screened for low Tracking Error and Cost.
-This helps you decide if it's worth paying active fees for potential alpha or simply tracking the index.
-
----
-
-## ⚡ Performance & Caching
-- **Smart Loading**: The UI checks if an analysis was already run today. If so, it loads the results instantly from cache, saving time and API resources.
-- **Force Re-run**: You can override the cache with a single click if you need fresh mid-day data.
-- **Visual Feedback**: Real-time loaders (spinners) indicate when data is being fetched or prepared.
-
----
-
-
-## 📂 Project Structure
-- `app.py`: Streamlit Web Dashboard (Run Analysis, View Results, Send Email).
-- `config.py`: EDIT THIS for categories, thresholds, email, and weights.
-- `metrics.py`: The Math Engine. Computes CAGR, Rolling Consistency, Capture Ratios, etc.
-- `screener.py`: Orchestrates Phase 2 elimination and Phase 3 scoring.
-- `fetcher.py`: Data ingestion from AMFI (funds/AUM) and mfapi.in (NAV).
-- `emailer.py`: Builds and sends the HTML reports.
-- `main.py`: CLI Orchestrator.
-- `utils.py`: Utility CLI tools (search, verify, count, pe, etc.).
-- `output/latest_results.json`: Persisted results from the last analysis run (used for Continuity checks).
-
----
-
-## 🤖 GitHub Actions Automation
-Push this code to a private repo, add `MF_EMAIL_PASSWORD` to your GitHub Secrets, and the `.github/workflows/quarterly.yml` will automatically run the screening and email you on the 1st of every quarter (Jan, Apr, Jul, Oct).
-
----
-
-## 💰 Cost: ₹0/month
-Uses free public APIs and free-tier automation.
-
+*For personal use only. Not financial advice. Consult a SEBI-registered advisor before investing.*
