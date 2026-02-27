@@ -38,6 +38,20 @@ def load_data():
 
 def run_analysis():
     with st.spinner("Running full screening… This takes 5–15 minutes depending on category size."):
+        # Load previous results for continuity check
+        prev_results = None
+        if DATA_PATH.exists():
+            try:
+                with open(DATA_PATH, "r") as f:
+                    prev_results = json.load(f)
+            except: pass
+            
+        results = run_screening(previous_results=prev_results)
+        st.session_state["results"] = results
+        st.success("✅ Analysis complete!")
+        st.rerun()
+
+    with st.spinner("Running full screening… This takes 5–15 minutes depending on category size."):
         results = run_screening()
         st.session_state["results"] = results
         st.success("✅ Analysis complete!")
@@ -159,7 +173,13 @@ def _render_active_table(top_funds: list, eliminated: list, category_avg: dict, 
         mngr_warn = " ⚠️M" if f.get("manager_flag") else ""
         beta_warn = " ⚠️β" if f.get("beta_flag") else ""
 
+        cont_badge = f" {f.get('continuity_status')}" if f.get("continuity_status") else ""
+        
         rows.append({
+            "Rank":          f"#{rank}",
+            "Fund":          name[:60] + cont_badge + mngr_warn + beta_warn,
+            "Score":         f.get("total_score"),
+
             "Rank":          f"#{rank}",
             "Fund":          name[:60] + mngr_warn + beta_warn,
             "Score":         f.get("total_score"),
@@ -242,7 +262,20 @@ def _render_active_table(top_funds: list, eliminated: list, category_avg: dict, 
             st.info(f"ℹ️ **High Beta** — {f['name'][:55]}: {f.get('beta_flag_reason')}")
 
     # ── Qualitative Manual Checklist ─────────────────────────────────────
+    # ── Qualitative Manual Checklist ─────────────────────────────────────
     with st.expander("📋 Manual Checks Required Before Investing"):
+        st.markdown("""
+For each fund in the top 3, **manually verify** on the AMC's factsheet or Value Research / Morningstar:
+
+1. **Fund Manager Tenure**: Is the same manager listed who built this track record? (AMC Website). Discount metrics if < 3 years.
+2. **Sector Concentration**: No single sector > 35% of portfolio? (Factsheet).
+3. **Stock Concentration**: Top-10 holdings < 60% of portfolio? (Factsheet).
+4. **Portfolio P/E vs Category**: Gap > 30% vs benchmark implies huge valuation bet.
+5. **SEBI Stress Test** (Mid/Small Cap): Check days to liquidate 50% of portfolio. > 30 days = illiquidity risk.
+6. **Exit Load & Lock-in**: Verify exit load period before switching.
+7. **Tax Impact**: Calculate LTCG/STCG impact. Switching is costly.
+        """)
+
         st.markdown("""
 For each fund in the top 3, **manually verify** on the AMC's factsheet or Value Research / Morningstar:
 

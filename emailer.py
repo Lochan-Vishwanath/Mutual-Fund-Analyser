@@ -87,7 +87,20 @@ def _flag_row(msg: str, color: str = "#C05A00") -> str:
     </tr>"""
 
 
+def _continuity_badge(status):
+    if not status or status == "—": return ""
+    color = "#1A7A4A" if "Holdover" in status else "#997A00"
+    return f"""<span style="background:{color};color:#fff;font-size:10px;font-weight:700;
+               padding:2px 6px;border-radius:4px;vertical-align:middle;margin-left:6px">{status}</span>"""
+
 def _fund_card(fund: dict, rank: int, is_passive: bool) -> str:
+    name  = fund.get("name", "—")
+    code  = fund.get("code", "—")
+    score = fund.get("total_score", 0)
+    aum   = fund.get("aum")
+    aum_s = f"₹{aum:,.0f} Cr" if aum and not (isinstance(aum, float) and np.isnan(aum)) else "AUM unavailable"
+    cont_badge = _continuity_badge(fund.get("continuity_status"))
+
     name  = fund.get("name", "—")
     code  = fund.get("code", "—")
     score = fund.get("total_score", 0)
@@ -181,6 +194,9 @@ def _fund_card(fund: dict, rank: int, is_passive: bool) -> str:
                     width:34px;height:34px;border-radius:50%;display:inline-flex;
                     align-items:center;justify-content:center;flex-shrink:0">{rank_label}</div>
         <div style="flex:1">
+          <div style="color:#fff;font-size:15px;font-weight:700;line-height:1.3">{name} {cont_badge}</div>
+          <div style="color:#aac4e8;font-size:12px;margin-top:2px">Code: {code} &nbsp;·&nbsp; {aum_s}</div>
+        </div>
           <div style="color:#fff;font-size:15px;font-weight:700;line-height:1.3">{name}</div>
           <div style="color:#aac4e8;font-size:12px;margin-top:2px">Code: {code} &nbsp;·&nbsp; {aum_s}</div>
         </div>
@@ -346,6 +362,17 @@ def build_html_email(results: dict, nifty_pe: float | None) -> str:
   </td></tr>
 
   <!-- MANUAL CHECKLIST -->
+  <tr><td style="background:#f5f8fc;padding:18px 32px;border:1px solid #dde5ef">
+    <div style="color:#1B3A6B;font-weight:700;font-size:13px;margin-bottom:8px">📋 Manual Verification (Before Acting)</div>
+    <ul style="margin:0;padding-left:18px;color:#555;font-size:12px;line-height:2.0">
+      <li><b>Fund Manager</b>: Verify tenure on AMC website. If < 3 years, historical metrics may be invalid.</li>
+      <li><b>Sector Concentration</b>: Check factsheet. Avoid if single sector > 35%.</li>
+      <li><b>Stock Concentration</b>: Check factsheet. Avoid if top-10 holdings > 60% (high conviction risk).</li>
+      <li><b>Portfolio P/E</b>: Compare fund P/E vs benchmark P/E. Gap > 30% indicates style drift or valuation risk.</li>
+      <li><b>SEBI Stress Test</b> (Mid/Small Cap): Check days to liquidate 50% portfolio. > 30 days is risky.</li>
+      <li><b>Switching Cost</b>: Always calculate Exit Load + LTCG/STCG impact before switching.</li>
+    </ul>
+  </td></tr>
   <tr><td style="background:#f5f8fc;padding:18px 32px;border:1px solid #dde5ef">
     <div style="color:#1B3A6B;font-weight:700;font-size:13px;margin-bottom:8px">📋 Manual Verification (Before Acting)</div>
     <ul style="margin:0;padding-left:18px;color:#555;font-size:12px;line-height:2.0">

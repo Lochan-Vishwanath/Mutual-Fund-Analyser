@@ -134,9 +134,12 @@ def _check_manager_change_proxy(fund: dict, all_funds: list) -> dict:
 # Main screener
 # ─────────────────────────────────────────────────────────────────────────────
 
-def run_screening() -> dict[str, dict]:
+def run_screening(previous_results: dict = None) -> dict[str, dict]:
     """
-    Runs the full Phase 2 → Phase 3 pipeline for every category.
+    Runs the full Phase 2 -> Phase 3 pipeline for every category.
+    
+    Args:
+        previous_results: Dict of results from the previous run (for continuity checks).
 
     Returns:
     {
@@ -151,6 +154,7 @@ def run_screening() -> dict[str, dict]:
       ...
     }
     """
+
     aum_map = get_amfi_aum_map()
     ter_map = get_ter_map()   # NEW: fetch TER for all schemes
     results = {}
@@ -245,6 +249,14 @@ def run_screening() -> dict[str, dict]:
             m.update({"name": name, "code": code, "aum": aum})
             all_computed.append(m)
 
+            # Gate: Negative Sharpe Ratio (Gap 4 Fix)
+            sharpe = m.get("sharpe")
+            if sharpe is not None and sharpe < 0:
+                print(f"{prefix} CUT    {name[:52]} — Negative Sharpe {sharpe:.2f}")
+                eliminated.append({**fund, **m, "reason": f"Negative Sharpe Ratio: {sharpe:.2f}"})
+                continue
+
+            # ── Active-only Phase 2 gates ─────────────────────────────────
             # ── Active-only Phase 2 gates ─────────────────────────────────
             if not is_passive:
 
@@ -340,6 +352,23 @@ def run_screening() -> dict[str, dict]:
 
         top_n_funds = ranked[:TOP_N]
 
+        # ── Step 7: Continuity Check (Holdover vs New Entrant) ────────────────
+
+        # ── Step 7: Continuity Check (Holdover vs New Entrant) ────────────────
+        if previous_results and category in previous_results:
+            prev_top_codes = {f["code"] for f in previous_results[category].get("top_funds", [])}
+            for f in top_n_funds:
+                if f["code"] in prev_top_codes:
+                    f["continuity_status"] = "Holdover 🛡️"
+                    f["continuity_desc"]   = "Was in Top 3 last quarter — safe to hold."
+                else:
+                    f["continuity_status"] = "New Entrant 🌟"
+                    f["continuity_desc"]   = "New to Top 3 — verify exit triggers before switching."
+        else:
+            for f in top_n_funds:
+                f["continuity_status"] = "New Entrant 🌟" if previous_results else "—" # First run ever
+                f["continuity_desc"]   = ""
+
         print(f"\n  TOP {TOP_N} [{category}]:")
         for rank, f in enumerate(top_n_funds, 1):
             rc   = f.get("rolling_consistency")
@@ -347,13 +376,18 @@ def run_screening() -> dict[str, dict]:
             dc   = f.get("down_capture")
             sc   = f.get("total_score", 0)
             pct  = f.get("rolling_category_percentile")
-            mngr = "⚠ MANAGER FLAG" if f.get("manager_flag") else ""
-            beta_fl = "⚠ HIGH BETA" if f.get("beta_flag") else ""
-            print(f"  #{rank}: {f['name'][:58]}")
+            cont = f.get("continuity_status", "")
+            mngr_console = "[!] MANAGER FLAG" if f.get("manager_flag") else ""
+            beta_console = "[!] HIGH BETA" if f.get("beta_flag") else ""
+            
+            cont_console = cont.replace("🛡️", "").replace("🌟", "").strip()
+            print(f"  #{rank}: {f['name'][:50]}  {cont_console}")
             print(f"       Score: {sc:.2f}/4.00 | Rolling: {rc:.0%} ({pct:.0f}th pct)" if rc and pct else
                   f"       Score: {sc:.2f}/4.00")
             print(f"       Up: {uc:.1f} | Down: {dc:.1f}" if uc and dc else "", end="")
-            print(f"  {mngr} {beta_fl}")
+            print(f"  {mngr_console} {beta_console}")
+
+
 
         results[category] = {
             "top_funds":            top_n_funds,
@@ -378,7 +412,7 @@ def run_screening() -> dict[str, dict]:
 
     with open(json_path, "w") as f:
         json.dump(results, f, cls=NpEncoder, indent=2)
-    print(f"\n  Results saved → {json_path}")
+    print(f"\n  Results saved -> {json_path}")
 
     return results
 

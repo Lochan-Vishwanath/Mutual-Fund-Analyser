@@ -51,7 +51,20 @@ def run(send_mode: str = "ask"):
     print(f"  {date.today().strftime('%d %B %Y')}")
     print("=" * 65)
 
-    results  = run_screening()
+    # Load previous results for continuity check
+    out_dir = Path("./output")
+    prev_results = None
+    prev_json = out_dir / "latest_results.json"
+    if prev_json.exists():
+        try:
+            with open(prev_json, "r") as f:
+                prev_results = json.load(f)
+            print("  Loaded previous run results for continuity comparison.")
+        except Exception:
+            print("  [WARN] Failed to load previous results.")
+
+    results  = run_screening(previous_results=prev_results)
+
     nifty_pe = get_nifty_pe()
 
     if nifty_pe:
@@ -65,7 +78,7 @@ def run(send_mode: str = "ask"):
     out_dir.mkdir(exist_ok=True)
     html_path = out_dir / f"report_{date.today().isoformat()}.html"
     html_path.write_text(html, encoding="utf-8")
-    print(f"\n  HTML report → {html_path}")
+    print(f"\n  HTML report -> {html_path}")
 
     # Console summary
     print("\n" + "=" * 65)
@@ -83,8 +96,8 @@ def run(send_mode: str = "ask"):
             dc   = _fmt_f(f.get("down_capture"), 1)
             pct  = f.get("rolling_category_percentile")
             pct_s = f"{pct:.0f}th pct" if pct is not None else "—"
-            mflg = " [⚠ MANAGER]" if f.get("manager_flag") else ""
-            bflg = " [⚠ BETA]" if f.get("beta_flag") else ""
+            mflg = " [!] MANAGER" if f.get("manager_flag") else ""
+            bflg = " [!] BETA" if f.get("beta_flag") else ""
 
             print(f"    #{i}: {f['name'][:58]}{mflg}{bflg}")
             if is_passive:
