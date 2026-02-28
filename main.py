@@ -1,5 +1,5 @@
 # ─────────────────────────────────────────────────────────────────────────────
-# main.py  —  Orchestrator.
+# main.py  —  CLI orchestrator for MF Master Plan v4.0
 #   python main.py          → interactive, asks before sending email
 #   python main.py --auto   → GitHub Actions mode, sends automatically
 #   python main.py --dry    → run screening + save HTML, never send
@@ -47,24 +47,24 @@ def run(send_mode: str = "ask"):
         "dry"  → never send, just save HTML and JSON
     """
     print("\n" + "=" * 65)
-    print("  MF MASTER PLAN v3 — QUARTERLY SCREENING")
+    print("  MF MASTER PLAN v4.0 — QUARTERLY SCREENING")
     print(f"  {date.today().strftime('%d %B %Y')}")
     print("=" * 65)
 
-    # Load previous results for continuity check
-    out_dir = Path("./output")
-    prev_results = None
+    out_dir  = Path("./output")
+    out_dir.mkdir(exist_ok=True)
     prev_json = out_dir / "latest_results.json"
+
+    prev_results = None
     if prev_json.exists():
         try:
-            with open(prev_json, "r") as f:
+            with open(prev_json) as f:
                 prev_results = json.load(f)
             print("  Loaded previous run results for continuity comparison.")
         except Exception:
-            print("  [WARN] Failed to load previous results.")
+            print("  [WARN] Failed to load previous results — first run assumed.")
 
     results  = run_screening(previous_results=prev_results)
-
     nifty_pe = get_nifty_pe()
 
     if nifty_pe:
@@ -72,45 +72,54 @@ def run(send_mode: str = "ask"):
     else:
         print("\n  Nifty 50 P/E: unavailable")
 
-    html = build_html_email(results, nifty_pe)
-
-    out_dir = Path("./output")
-    out_dir.mkdir(exist_ok=True)
+    html      = build_html_email(results, nifty_pe)
     html_path = out_dir / f"report_{date.today().isoformat()}.html"
     html_path.write_text(html, encoding="utf-8")
-    print(f"\n  HTML report -> {html_path}")
+    print(f"\n  HTML report → {html_path}")
 
-    # Console summary
+    # ── Console summary ────────────────────────────────────────────────────
     print("\n" + "=" * 65)
     print("  TOP FUNDS SUMMARY")
     print("=" * 65)
+
     for cat, data in results.items():
-        top = data.get("top_funds", [])
-        is_passive = data.get("is_passive", False)
-        print(f"\n  [{cat}]  (screened {data['total_found']}, passed {data['total_passed_phase2']})")
+        top         = data.get("top_funds", [])
+        is_passive  = data.get("is_passive", False)
+        rw          = data.get("rolling_window_years", 3)
+        found       = data.get("total_found", 0)
+        passed      = data.get("total_passed_phase2", 0)
+
+        print(f"\n  [{cat}]  ({found} screened, {passed} qualified, {rw}yr rolling)")
+
         for i, f in enumerate(top, 1):
             sc   = f.get("total_score", 0)
             c5   = _fmt_cagr(f.get("cagr_5y"))
-            rc   = _fmt_pct(f.get("rolling_consistency"))
-            uc   = _fmt_f(f.get("up_capture"), 1)
-            dc   = _fmt_f(f.get("down_capture"), 1)
-            pct  = f.get("rolling_category_percentile")
-            pct_s = f"{pct:.0f}th pct" if pct is not None else "—"
-            mflg = " [!] MANAGER" if f.get("manager_flag") else ""
-            bflg = " [!] BETA" if f.get("beta_flag") else ""
+            cont = f.get("continuity_status", "")
+            mflg = " ⚠️ MANAGER" if f.get("manager_flag") else ""
+            bflg = " ⚡ BETA"    if f.get("beta_flag")   else ""
+            pflg = " 🔄 PTR"     if f.get("ptr_flag")    else ""
 
-            print(f"    #{i}: {f['name'][:58]}{mflg}{bflg}")
+            print(f"    #{i}: {f['name'][:58]} {cont}{mflg}{bflg}{pflg}")
+
             if is_passive:
                 te = _fmt_f(f.get("tracking_error"), 4)
-                print(f"        5Y CAGR: {c5}  |  Tracking Error: {te}%")
+                print(f"         TE: {te}%  |  Score: {sc:.2f}/4.00  |  5Y CAGR: {c5}")
             else:
-                print(f"        5Y CAGR: {c5}  |  Score: {sc:.2f}/4.00")
-                print(f"        Rolling: {rc} ({pct_s})  |  Up: {uc}  |  Down: {dc}")
+                rc  = _fmt_pct(f.get("rolling_consistency"))
+                cr  = _fmt_f(f.get("capture_ratio"), 3)
+                ir  = _fmt_f(f.get("info_ratio"))
+                als = _fmt_f(f.get("alpha_stability"), 4)
+                pct = f.get("rolling_category_percentile")
+                pct_s = f"{pct:.0f}th pct" if pct is not None else "—"
+                print(f"         Score: {sc:.2f}/4.00  |  RC: {rc} ({pct_s})  |  "
+                      f"CaptureRatio: {cr}  |  IR: {ir}  |  αStability: {als}")
+                print(f"         5Y CAGR: {c5}")
 
-    # Send
+    # ── Send ───────────────────────────────────────────────────────────────
     if send_mode == "dry":
         print("\n  Dry run — email not sent.")
     elif send_mode == "auto":
+        print("\n  Auto mode — sending email...")
         send_email(html)
     else:
         ans = input("\n  Send email to subscribers? (y/n): ").strip().lower()

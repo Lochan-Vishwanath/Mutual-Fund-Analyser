@@ -1,0 +1,72 @@
+name: Quarterly MF Review — Auto Send
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Runs on the first day of each quarter (Jan/Apr/Jul/Oct) at 7:30am IST (2am UTC)
+# Can also be triggered manually via "Run workflow" button on GitHub Actions tab.
+#
+# Required GitHub Secrets (Settings → Secrets → Actions):
+#   EMAIL_SENDER        : your Gmail address
+#   MF_EMAIL_PASSWORD   : your Gmail App Password (16 chars, no spaces)
+#   SUBSCRIBERS         : comma-separated email list
+# ─────────────────────────────────────────────────────────────────────────────
+
+on:
+  schedule:
+    - cron: "30 2 1 1,4,7,10 *"   # 1st of Jan, Apr, Jul, Oct at 02:30 UTC (7:30am IST)
+  workflow_dispatch:                # Allow manual trigger from GitHub Actions tab
+
+jobs:
+  quarterly-review:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45            # Full screening can take 15-20 min for all categories
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Cache pip dependencies
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-${{ hashFiles('requirements.txt') }}
+          restore-keys: |
+            ${{ runner.os }}-pip-
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Create output + cache directories
+        run: mkdir -p output cache
+
+      - name: Restore previous results (for continuity check)
+        uses: actions/cache@v4
+        with:
+          path: output/latest_results.json
+          key: mf-results-${{ github.run_number }}
+          restore-keys: |
+            mf-results-
+
+      - name: Run quarterly screening + send email
+        env:
+          EMAIL_SENDER:       ${{ secrets.EMAIL_SENDER }}
+          MF_EMAIL_PASSWORD:  ${{ secrets.MF_EMAIL_PASSWORD }}
+          SUBSCRIBERS:        ${{ secrets.SUBSCRIBERS }}
+        run: python main.py --auto
+
+      - name: Save HTML report as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: mf-report-${{ github.run_number }}
+          path: output/report_*.html
+          retention-days: 90
+
+      - name: Persist results for next quarter's continuity check
+        uses: actions/cache@v4
+        with:
+          path: output/latest_results.json
+          key: mf-results-${{ github.run_number }}

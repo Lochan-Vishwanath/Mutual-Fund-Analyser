@@ -1,14 +1,17 @@
 from __future__ import annotations
 
 # ─────────────────────────────────────────────────────────────────────────────
-# emailer.py  —  Builds the HTML quarterly email and sends it.
+# emailer.py  —  HTML quarterly report builder + SMTP sender for v4.0
 #
-# v3 Changes:
-#   - Fund cards now show upside capture and TER
-#   - Category average row added below fund cards
-#   - Manager flag and Beta flag shown as amber warnings inside the card
-#   - Qualitative checklist in footer (manual verification reminder)
-#   - Updated methodology description to reflect v3 weights
+# v4 Changes:
+#   - Fund cards now show Capture Ratio (division-based) instead of separate
+#     up/down capture in the scoring section
+#   - Alpha Stability shown as a new metric row
+#   - Manager change shows 2-signal breakdown (volatility shift + alpha flip)
+#   - Phase 4 flags: PTR flag + Concentration flag added
+#   - Score breakdown section updated to reflect 5-metric weighting
+#   - TER shown as gate info, not a scoring weight
+#   - Rolling window (3yr vs 5yr) shown per category
 # ─────────────────────────────────────────────────────────────────────────────
 
 import os
@@ -19,7 +22,7 @@ from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from config import (
     EMAIL_SENDER, EMAIL_PASSWORD, EMAIL_SUBJECT, SUBSCRIBERS,
-    PE_THRESHOLDS, TOP_N
+    PE_THRESHOLDS, TOP_N, SCORE_WEIGHTS,
 )
 
 
@@ -39,12 +42,12 @@ def _indicator(val, good_threshold, bad_threshold=None, higher_is_better=True):
     if val is None or (isinstance(val, float) and np.isnan(val)):
         return "⚪"
     if higher_is_better:
-        if val >= good_threshold:                          return "🟢"
-        if bad_threshold and val <= bad_threshold:         return "🔴"
+        if val >= good_threshold:                      return "🟢"
+        if bad_threshold and val <= bad_threshold:     return "🔴"
         return "🟡"
     else:
-        if val <= good_threshold:                          return "🟢"
-        if bad_threshold and val >= bad_threshold:         return "🔴"
+        if val <= good_threshold:                      return "🟢"
+        if bad_threshold and val >= bad_threshold:     return "🔴"
         return "🟡"
 
 
@@ -67,7 +70,7 @@ RANK_LABELS = ["#1", "#2", "#3"]
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Fund card builder
+# Card sub-components
 # ─────────────────────────────────────────────────────────────────────────────
 
 def _metric_row(label, value_str, indicator="⚪", highlight=False):
@@ -90,33 +93,52 @@ def _flag_row(msg: str, color: str = "#C05A00") -> str:
 
 
 def _continuity_badge(status):
-    if not status or status == "—": return ""
+    if not status or status == "—":
+        return ""
     color = "#1A7A4A" if "Holdover" in status else "#997A00"
-    return f"""<span style="background:{color};color:#fff;font-size:10px;font-weight:700;
-               padding:2px 6px;border-radius:4px;vertical-align:middle;margin-left:6px">{status}</span>"""
+    label = status.replace("🛡️", "").replace("🌟", "").strip()
+    return (f'<span style="background:{color};color:#fff;font-size:10px;font-weight:700;'
+            f'padding:2px 7px;border-radius:4px;vertical-align:middle;margin-left:6px">{status}</span>')
 
-def _fund_card(fund: dict, rank: int, is_passive: bool) -> str:
-    name  = fund.get("name", "—")
-    code  = fund.get("code", "—")
-    score = fund.get("total_score", 0)
-    aum   = fund.get("aum")
-    aum_s = f"₹{aum:,.0f} Cr" if aum and not (isinstance(aum, float) and np.isnan(aum)) else "AUM unavailable"
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Fund card builder
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _fund_card(fund: dict, rank: int, is_passive: bool, rolling_window_years: int = 3) -> str:
+    name       = fund.get("name", "—")
+    code       = fund.get("code", "—")
+    score      = fund.get("total_score", 0)
+    aum        = fund.get("aum")
+    aum_s      = f"₹{aum:,.0f} Cr" if aum and not (isinstance(aum, float) and np.isnan(aum)) else "AUM unavailable"
     cont_badge = _continuity_badge(fund.get("continuity_status"))
-
-    name  = fund.get("name", "—")
-    code  = fund.get("code", "—")
-    score = fund.get("total_score", 0)
-    aum   = fund.get("aum")
-    aum_s = f"₹{aum:,.0f} Cr" if aum and not (isinstance(aum, float) and np.isnan(aum)) else "AUM unavailable"
 
     rank_color = RANK_COLORS[rank - 1] if rank <= 3 else "#555555"
     rank_label = RANK_LABELS[rank - 1] if rank <= 3 else f"#{rank}"
 
+    # Flags
     flags_html = ""
     if fund.get("manager_flag"):
-        flags_html += _flag_row(fund.get("manager_flag_reason", "Potential manager change — verify on AMC website"))
+        reason = fund.get("manager_flag_reason", "Potential manager change detected")
+        flags_html += _flag_row(f"MANAGER CHANGE SIGNAL: {reason}")
     if fund.get("beta_flag"):
-        flags_html += _flag_row(fund.get("beta_flag_reason", "High beta — amplified market exposure"), "#1B3A6B")
+        flags_html += _flag_row(fund.get("beta_flag_reason", "High Beta detected"), "#1B3A6B")
+    if fund.get("ptr_flag"):
+        flags_html += _flag_row(fund.get("ptr_flag_reason", "High portfolio turnover"), "#6B1B1B")
+    if fund.get("concentration_flag"):
+        flags_html += _flag_row(fund.get("concentration_flag_reason", "High portfolio concentration"), "#4B1B6B")
+
+    # Continuity description
+    cont_desc = fund.get("continuity_desc", "")
+    cont_html = ""
+    if cont_desc:
+        cont_html = f"""
+        <tr>
+          <td colspan="2" style="padding:6px 14px;font-size:12px;color:#1A5A3A;
+                                 background:#eafaf1;border-bottom:1px solid #f5f5f5">
+            {fund.get("continuity_status", "")} {cont_desc}
+          </td>
+        </tr>"""
 
     if is_passive:
         te     = fund.get("tracking_error")
@@ -125,12 +147,14 @@ def _fund_card(fund: dict, rank: int, is_passive: bool) -> str:
         sharpe = fund.get("sharpe")
         mdd    = fund.get("max_drawdown")
         ter    = fund.get("ter")
-        rows   = (
+
+        rows = (
             _metric_row("Tracking Error % (lower = better)",
                         _f(te, ".4f") + "%",
-                        _indicator(te, 0.001, 0.003, higher_is_better=False)) +
-            _metric_row("3Y CAGR",    _f(c3, pct=True)) +
-            _metric_row("5Y CAGR",    _f(c5, pct=True)) +
+                        _indicator(te, 0.001, 0.005, higher_is_better=False),
+                        highlight=True) +
+            _metric_row("3Y CAGR",      _f(c3, pct=True)) +
+            _metric_row("5Y CAGR",      _f(c5, pct=True)) +
             _metric_row("Sharpe Ratio", _f(sharpe), _indicator(sharpe, 1.0, 0.5)) +
             _metric_row("Max Drawdown", _f(mdd, pct=True),
                         _indicator(mdd, -0.30, -0.50, higher_is_better=False)) +
@@ -139,55 +163,68 @@ def _fund_card(fund: dict, rank: int, is_passive: bool) -> str:
                         _indicator(ter, 0.10, 0.30, higher_is_better=False) if ter else "⚪",
                         highlight=True)
         )
-        verdict = "Ranked by tracking error — lowest wins for passive funds"
+        verdict = f"Passive Score: TE×70% + TER×30% = {score:.2f}/4.00"
 
     else:
         rc   = fund.get("rolling_consistency")
         pct  = fund.get("rolling_category_percentile")
+        cr   = fund.get("capture_ratio")
         uc   = fund.get("up_capture")
         dc   = fund.get("down_capture")
         so   = fund.get("sortino")
         ir   = fund.get("info_ratio")
+        als  = fund.get("alpha_stability")
         alp  = fund.get("alpha")
         c5   = fund.get("cagr_5y")
         c10  = fund.get("cagr_10y")
         mdd  = fund.get("max_drawdown")
         ter  = fund.get("ter")
+        beta = fund.get("beta")
 
         pct_str = f"{pct:.0f}th percentile vs peers" if pct is not None else "—"
+        rw_label = f"{rolling_window_years}yr rolling windows"
 
         rows = (
-            _metric_row(f"Rolling Consistency (Category: {pct_str})",
+            _metric_row(f"Rolling Consistency [{rw_label}] — {pct_str}",
                         _f(rc, pct=True),
-                        _indicator(rc, 0.85, 0.65)) +
-            _metric_row("Upside Capture Ratio (higher = better)",
+                        _indicator(rc, 0.70, 0.55),
+                        highlight=True) +
+            _metric_row("Capture Ratio (Upside÷Downside)",
+                        _f(cr, ".3f"),
+                        _indicator(cr, 1.10, 1.0),
+                        highlight=True) +
+            _metric_row("  ↳ Upside Capture (context)",
                         _f(uc, ".1f"),
-                        _indicator(uc, 105, 85),
-                        highlight=True) +
-            _metric_row("Downside Capture Ratio (lower = better)",
+                        _indicator(uc, 105, 85)) +
+            _metric_row("  ↳ Downside Capture (context)",
                         _f(dc, ".1f"),
-                        _indicator(dc, 85, 100, higher_is_better=False),
-                        highlight=True) +
+                        _indicator(dc, 85, 105, higher_is_better=False)) +
             _metric_row("Sortino Ratio",
                         _f(so),
                         _indicator(so, 2.0, 1.0)) +
-            _metric_row("Information Ratio",
+            _metric_row("Information Ratio (manager skill)",
                         _f(ir),
-                        _indicator(ir, 0.7, 0.3)) +
-            _metric_row("Alpha (annualised)",
+                        _indicator(ir, 0.7, 0.3),
+                        highlight=True) +
+            _metric_row("Alpha Stability (rolling α stddev — lower = better)",
+                        _f(als, ".4f"),
+                        _indicator(als, 0.03, 0.08, higher_is_better=False)) +
+            _metric_row("Alpha (annualised Jensen)",
                         _f(alp, pct=True),
                         _indicator(alp, 0.02, -0.01)) +
-            _metric_row("5Y / 10Y CAGR",
+            _metric_row(f"5Y / 10Y CAGR",
                         f"{_f(c5, pct=True)} / {_f(c10, pct=True)}") +
             _metric_row("Max Drawdown",
                         _f(mdd, pct=True),
                         _indicator(mdd, -0.40, -0.60, higher_is_better=False)) +
-            _metric_row("Expense Ratio (TER)",
+            _metric_row("Beta",
+                        _f(beta),
+                        _indicator(beta, 1.0, 1.3, higher_is_better=False) if beta else "⚪") +
+            _metric_row("Expense Ratio (TER — gate, not score)",
                         _f(ter) + "%" if ter else "—",
-                        _indicator(ter, 0.50, 0.85, higher_is_better=False) if ter else "⚪",
-                        highlight=True)
+                        _indicator(ter, 0.50, 0.85, higher_is_better=False) if ter else "⚪")
         )
-        verdict = f"Weighted Score: {score:.2f} / 4.00"
+        verdict = f"Active Score: {score:.2f} / 4.00 (IR×25% + RC×22% + Capture×20% + Sortino×18% + αStability×15%)"
 
     return f"""
     <div style="margin-bottom:16px;border:1px solid #e0e8f0;border-radius:8px;overflow:hidden;box-shadow:0 1px 4px rgba(0,0,0,0.07)">
@@ -199,297 +236,269 @@ def _fund_card(fund: dict, rank: int, is_passive: bool) -> str:
           <div style="color:#fff;font-size:15px;font-weight:700;line-height:1.3">{name} {cont_badge}</div>
           <div style="color:#aac4e8;font-size:12px;margin-top:2px">Code: {code} &nbsp;·&nbsp; {aum_s}</div>
         </div>
-          <div style="color:#fff;font-size:15px;font-weight:700;line-height:1.3">{name}</div>
-          <div style="color:#aac4e8;font-size:12px;margin-top:2px">Code: {code} &nbsp;·&nbsp; {aum_s}</div>
-        </div>
+        <div style="color:#aac4e8;font-size:12px;text-align:right;flex-shrink:0">{verdict}</div>
       </div>
       <table style="width:100%;border-collapse:collapse">
         {flags_html}
+        {cont_html}
         {rows}
       </table>
-      <div style="background:#f0f8f4;padding:8px 18px;border-top:1px solid #e0e8f0">
-        <span style="color:#1A7A4A;font-size:12px;font-weight:600">{verdict}</span>
+    </div>"""
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Category section builder
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _category_avg_row(avg: dict, is_passive: bool, rolling_window_years: int = 3) -> str:
+    if not avg:
+        return ""
+    if is_passive:
+        return f"""
+        <tr style="background:#f0f4fa;font-style:italic">
+          <td colspan="8" style="padding:6px 14px;font-size:12px;color:#555">
+            📊 Category Average — TE: {_f(avg.get("tracking_error"), ".4f")}% &nbsp;·&nbsp;
+            TER: {_f(avg.get("ter"))}%
+          </td>
+        </tr>"""
+    rw = f"{rolling_window_years}yr"
+    return f"""
+    <div style="background:#f0f4fa;border:1px solid #d0ddf0;border-radius:6px;
+                padding:8px 14px;font-size:12px;color:#445;margin-bottom:16px">
+      📊 <strong>Category Peer Averages</strong> &nbsp;·&nbsp;
+      Rolling Consistency [{rw}]: <strong>{_f(avg.get("rolling_consistency"), pct=True)}</strong> &nbsp;·&nbsp;
+      Capture Ratio: <strong>{_f(avg.get("capture_ratio"), ".3f")}</strong> &nbsp;·&nbsp;
+      Sortino: <strong>{_f(avg.get("sortino"))}</strong> &nbsp;·&nbsp;
+      Info Ratio: <strong>{_f(avg.get("info_ratio"))}</strong> &nbsp;·&nbsp;
+      5Y CAGR: <strong>{_f(avg.get("cagr_5y"), pct=True)}</strong>
+    </div>"""
+
+
+def _category_section(category: str, data: dict) -> str:
+    top_funds    = data.get("top_funds", [])
+    eliminated   = data.get("eliminated", [])
+    is_passive   = data.get("is_passive", False)
+    cat_avg      = data.get("category_avg", {})
+    total_found  = data.get("total_found", 0)
+    total_passed = data.get("total_passed_phase2", 0)
+    rw_years     = data.get("rolling_window_years", 3)
+    cons_floor   = data.get("consistency_floor", 0.55)
+
+    strategy_label = "PASSIVE — ranked by Tracking Error" if is_passive else f"ACTIVE — {rw_years}yr rolling windows, consistency floor ≥{cons_floor:.0%}"
+    header_style   = "background:#2C5F8A" if is_passive else "background:#1B3A6B"
+
+    cards = "".join(_fund_card(f, i + 1, is_passive, rw_years) for i, f in enumerate(top_funds))
+    avg_row = _category_avg_row(cat_avg, is_passive, rw_years)
+
+    elim_rows = ""
+    if eliminated:
+        rows_html = "".join(
+            f"""<tr>
+              <td style="padding:4px 10px;font-size:12px;border-bottom:1px solid #eee">{e.get("name","")[:60]}</td>
+              <td style="padding:4px 10px;font-size:12px;color:#888;border-bottom:1px solid #eee">{e.get("reason","")}</td>
+            </tr>"""
+            for e in eliminated[:20]   # Cap at 20 to keep email size reasonable
+        )
+        elim_html = f"""
+        <details style="margin-top:8px">
+          <summary style="cursor:pointer;font-size:12px;color:#888">
+            ❌ {len(eliminated)} funds eliminated (click to expand)
+          </summary>
+          <table style="width:100%;border-collapse:collapse;margin-top:6px">
+            <tr style="background:#f9f9f9">
+              <th style="padding:4px 10px;font-size:11px;text-align:left;color:#666">Fund</th>
+              <th style="padding:4px 10px;font-size:11px;text-align:left;color:#666">Reason</th>
+            </tr>
+            {rows_html}
+          </table>
+        </details>"""
+    else:
+        elim_html = ""
+
+    no_funds_msg = ""
+    if not top_funds:
+        no_funds_msg = """
+        <div style="background:#fff3cd;border:1px solid #ffc107;border-radius:6px;padding:12px;
+                    font-size:13px;color:#856404">
+          ⚠️ No funds passed all gates for this category this quarter.
+          Review eliminated funds below and consider relaxing thresholds in config.py if needed.
+        </div>"""
+
+    return f"""
+    <div style="margin-bottom:32px">
+      <div style="{header_style};color:#fff;padding:10px 18px;border-radius:6px 6px 0 0">
+        <strong style="font-size:16px">{category}</strong>
+        <span style="font-size:11px;opacity:0.8;margin-left:12px">{strategy_label}</span>
+        <span style="font-size:11px;opacity:0.7;float:right">{total_found} screened · {total_passed} qualified</span>
+      </div>
+      <div style="border:1px solid #d0ddf0;border-top:none;border-radius:0 0 6px 6px;padding:16px">
+        {no_funds_msg}
+        {avg_row}
+        {cards}
+        {elim_html}
       </div>
     </div>"""
 
 
-def _category_avg_row(avg: dict) -> str:
-    """Compact category average summary bar."""
-    if not avg:
-        return ""
-    rc  = avg.get("rolling_consistency")
-    uc  = avg.get("up_capture")
-    dc  = avg.get("down_capture")
-    c5  = avg.get("cagr_5y")
-    so  = avg.get("sortino")
-    ter = avg.get("ter")
-    return f"""
-    <div style="background:#f5f8fc;border:1px solid #dde5ef;border-radius:6px;
-                padding:10px 16px;margin-bottom:12px;font-size:12px;color:#555">
-      <strong style="color:#1B3A6B">◆ Category Average:</strong>
-      &nbsp; 5Y CAGR: <b>{_f(c5, pct=True)}</b>
-      &nbsp;·&nbsp; Rolling: <b>{_f(rc, pct=True)}</b>
-      &nbsp;·&nbsp; Up Capture: <b>{_f(uc, '.1f')}</b>
-      &nbsp;·&nbsp; Down Capture: <b>{_f(dc, '.1f')}</b>
-      &nbsp;·&nbsp; Sortino: <b>{_f(so)}</b>
-      &nbsp;·&nbsp; TER: <b>{_f(ter)}%</b>
-    </div>"""
-
-
 # ─────────────────────────────────────────────────────────────────────────────
-# Full email builder
+# Full email HTML builder
 # ─────────────────────────────────────────────────────────────────────────────
 
-def build_html_email(results: dict, nifty_pe: float | None) -> str:
-    quarter  = f"Q{(date.today().month - 1) // 3 + 1} {date.today().year}"
-    run_date = date.today().strftime("%d %B %Y")
+def build_html_email(results: dict, nifty_pe: float = None) -> str:
+    today      = date.today().strftime("%d %B %Y")
     pe_msg, pe_color = _pe_signal(nifty_pe)
 
-    total_screened   = sum(d.get("total_found", 0) for d in results.values())
-    total_passed     = sum(d.get("total_passed_phase2", 0) for d in results.values())
-    total_eliminated = total_screened - total_passed
+    total_screened = sum(cat.get("total_found", 0)          for cat in results.values())
+    total_passed   = sum(cat.get("total_passed_phase2", 0)  for cat in results.values())
 
-    category_sections = ""
-    # ── Special: Large Cap Merged View ───────────────────────────────────
-    # If both Large Cap Active and Passive exist, display them together in a "Winner's Circle"
-    lc_act = results.get("Large Cap (Active)")
-    lc_pas = results.get("Large Cap (Passive)")
-    
-    if lc_act or lc_pas:
-        # Create a unified section
-        combined_html = ""
-        
-        # ACTIVE COLUMN
-        if lc_act:
-            top_act = lc_act.get("top_funds", [])
-            avg_act = lc_act.get("category_avg", {})
-            act_rows = _category_avg_row(avg_act)
-            for rank, f in enumerate(top_act, 1):
-                act_rows += _fund_card(f, rank, is_passive=False)
-                
-            combined_html += f"""
-            <div style="margin-bottom:24px">
-              <h3 style="color:#059669;margin:0 0 10px 0;border-bottom:2px solid #059669;display:inline-block;padding-bottom:4px">
-                🧠 Top Active Managers
-              </h3>
-              <div style="font-size:12px;color:#666;margin-bottom:12px">Ranked by Alpha, Information Ratio & Consistency</div>
-              {act_rows}
-            </div>"""
+    # Separate Large Cap for side-by-side view
+    lc_active  = results.get("Large Cap (Active)")
+    lc_passive = results.get("Large Cap (Passive)")
+    other_cats = {k: v for k, v in results.items()
+                  if k not in ("Large Cap (Active)", "Large Cap (Passive)")}
 
-        # PASSIVE COLUMN
-        if lc_pas:
-            top_pas = lc_pas.get("top_funds", [])
-            pas_rows = ""
-            for rank, f in enumerate(top_pas, 1):
-                pas_rows += _fund_card(f, rank, is_passive=True)
-                
-            combined_html += f"""
-            <div style="margin-bottom:24px">
-              <h3 style="color:#2563EB;margin:0 0 10px 0;border-bottom:2px solid #2563EB;display:inline-block;padding-bottom:4px">
-                🤖 Top Passive / Index
-              </h3>
-              <div style="font-size:12px;color:#666;margin-bottom:12px">Ranked by lowest Tracking Error & Cost</div>
-              {pas_rows}
-            </div>"""
+    # Build Large Cap section
+    lc_html = ""
+    if lc_active or lc_passive:
+        act_section  = _category_section("Large Cap (Active)", lc_active)  if lc_active  else ""
+        pass_section = _category_section("Large Cap (Passive)", lc_passive) if lc_passive else ""
+        lc_html = f"""
+        <h2 style="color:#1B3A6B;border-bottom:2px solid #1B3A6B;padding-bottom:6px;margin-top:28px">
+          ⚔️ Large Cap: Active vs Passive
+        </h2>
+        <table style="width:100%;border-collapse:collapse">
+          <tr>
+            <td style="width:50%;vertical-align:top;padding-right:10px">{act_section}</td>
+            <td style="width:50%;vertical-align:top;padding-left:10px">{pass_section}</td>
+          </tr>
+        </table>"""
 
-        category_sections += f"""
-        <div style="margin-bottom:40px;border:1px solid #e0e8f0;background:#fafbfc;padding:24px;border-radius:8px">
-          <div style="margin-bottom:20px;border-bottom:2px solid #1B3A6B;padding-bottom:10px">
-            <h2 style="margin:0;font-size:20px;color:#1B3A6B">⚔️ Large Cap: Active vs Passive</h2>
-            <div style="font-size:12px;color:#666;margin-top:4px">Direct comparison to help you decide: Pay for Alpha or Save on Fees?</div>
-          </div>
-          {combined_html}
-        </div>"""
+    # Build other categories
+    other_html = ""
+    for cat, data in other_cats.items():
+        other_html += _category_section(cat, data)
 
-        # Remove them from the standard loop
-        if "Large Cap (Active)" in results:  del results["Large Cap (Active)"]
-        if "Large Cap (Passive)" in results: del results["Large Cap (Passive)"]
+    methodology_html = f"""
+    <div style="background:#f8f9fa;border:1px solid #dee2e6;border-radius:8px;padding:18px;margin-top:28px">
+      <h3 style="color:#1B3A6B;margin-top:0">📐 Methodology — v4.0 Architecture</h3>
+      
+      <p style="font-size:13px;color:#555;margin:4px 0">
+        <strong>Active/Passive Fork:</strong> Index funds score purely on Tracking Error (70%) + TER (30%).
+        Active funds go through the full 4-phase pipeline below.
+      </p>
+      
+      <p style="font-size:13px;color:#555;margin:8px 0 4px 0"><strong>Phase 1 — Hard Filters:</strong></p>
+      <ul style="font-size:12px;color:#666;margin:0 0 8px 16px">
+        <li>History: ≥5yr (Large/Flexi) or ≥7yr (Mid/Small Cap)</li>
+        <li>AUM: Category-specific min/max (e.g. Small Cap max ₹15,000Cr; Flexi Cap no max)</li>
+      </ul>
+      
+      <p style="font-size:13px;color:#555;margin:8px 0 4px 0"><strong>Phase 2 — Dynamic Gates (category-relative):</strong></p>
+      <ul style="font-size:12px;color:#666;margin:0 0 8px 16px">
+        <li>Sharpe Ratio > 0 (fund must justify equity risk over T-bills)</li>
+        <li>TER ≤ category median + 0.3% (gate replaces old 5% scoring weight)</li>
+        <li>Rolling Consistency ≥ 55–60% AND above category median</li>
+        <li>Capital Protection: negative windows ≤ 10%</li>
+        <li>Capture Ratio (Upside÷Downside) > 1.0 AND above category median</li>
+      </ul>
+      
+      <p style="font-size:13px;color:#555;margin:8px 0 4px 0"><strong>Phase 3 — Scoring (5 non-collinear dimensions):</strong></p>
+      <ul style="font-size:12px;color:#666;margin:0 0 8px 16px">
+        <li>Information Ratio — 25% (manager skill: consistent alpha per unit active risk)</li>
+        <li>Rolling Consistency — 22% (process vs luck: % windows beating benchmark)</li>
+        <li>Capture Ratio (÷) — 20% (asymmetry quality: gains more than it loses)</li>
+        <li>Sortino Ratio — 18% (return per unit of downside volatility only)</li>
+        <li>Alpha Stability — 15% (rolling alpha std dev: lower = more consistent)</li>
+      </ul>
+      
+      <p style="font-size:13px;color:#555;margin:8px 0 4px 0"><strong>Phase 4 — Qualitative Flags (manual verification):</strong></p>
+      <ul style="font-size:12px;color:#666;margin:0 0 4px 16px">
+        <li>⚠️ Manager Change: volatility signature shift + alpha sign flip signals</li>
+        <li>⚡ High Beta (&gt;1.3): fund amplifies market moves significantly</li>
+        <li>🔄 High PTR: portfolio turnover &gt;1.5 SD above category median</li>
+        <li>🛡️ Holdover / 🌟 New Entrant continuity rule (tax + exit load aware)</li>
+      </ul>
+      
+      <p style="font-size:11px;color:#888;margin:8px 0 0 0">
+        Rolling windows: 3yr for Large/Flexi Cap · 5yr for Mid/Small Cap (matches cycle length).
+        Capture Ratio uses Upside÷Downside (division, not subtraction) to correctly penalise 
+        high-volatility funds with the same spread as conservative ones.
+      </p>
+    </div>"""
 
-    for category, data in results.items():
+    checklist_html = """
+    <div style="background:#fff8e1;border:1px solid #ffe082;border-radius:8px;padding:18px;margin-top:16px">
+      <h3 style="color:#856404;margin-top:0">✅ Manual Verification Checklist (New Entrants 🌟)</h3>
+      <ol style="font-size:12px;color:#666;margin:0;padding-left:18px">
+        <li><strong>Fund Manager Tenure:</strong> Still the same manager who built the track record? (Check AMC website / MFI Explorer)</li>
+        <li><strong>AUM Trajectory:</strong> Has AUM doubled recently? Could force mandate drift in Mid/Small cap.</li>
+        <li><strong>Sector Concentration:</strong> No single sector &gt;35% of portfolio.</li>
+        <li><strong>Portfolio P/E:</strong> Compare fund P/E vs benchmark P/E — gap &gt;30% = style drift risk.</li>
+        <li><strong>SEBI Stress Test (Mid/Small):</strong> Check days to liquidate 50% of portfolio on SEBI portal.</li>
+        <li><strong>Switching Cost:</strong> Calculate Exit Load + LTCG (10% above ₹1L gains) / STCG (15%) before any switch.</li>
+        <li><strong>2-Quarter Rule:</strong> Only exit a Holdover if it fails a gate for 2 consecutive quarters — not just a rank drop.</li>
+      </ol>
+    </div>"""
 
-        top_funds  = data.get("top_funds", [])
-        eliminated = data.get("eliminated", [])
-        is_passive = data.get("is_passive", False)
-        category_avg = data.get("category_avg", {})
-        total_f    = data.get("total_found", 0)
-        passed_f   = data.get("total_passed_phase2", 0)
-
-        cards_html = ""
-        if not top_funds:
-            cards_html = f"""
-            <div style="background:#fff3cd;border-left:4px solid #C05A00;padding:14px;border-radius:4px">
-              No funds passed all criteria this quarter for <b>{category}</b>.
-            </div>"""
-        else:
-            cards_html = _category_avg_row(category_avg if not is_passive else {})
-            for rank, fund in enumerate(top_funds, 1):
-                cards_html += _fund_card(fund, rank, is_passive)
-
-        # Eliminated summary
-        elim_rows = ""
-        for f in eliminated[:8]:
-            elim_rows += f"""
-            <tr>
-              <td style="padding:4px 8px;font-size:11px;color:#666;border-bottom:1px solid #f5f5f5;max-width:320px">{f.get('name','')[:55]}</td>
-              <td style="padding:4px 8px;font-size:11px;color:#C05A00;border-bottom:1px solid #f5f5f5">{f.get('reason','')}</td>
-            </tr>"""
-        if len(eliminated) > 8:
-            elim_rows += f"""
-            <tr><td colspan="2" style="padding:4px 8px;font-size:11px;color:#888;font-style:italic">
-              + {len(eliminated) - 8} more eliminated
-            </td></tr>"""
-
-        elim_section = ""
-        if elim_rows:
-            elim_section = f"""
-            <details style="margin-top:8px">
-              <summary style="cursor:pointer;font-size:12px;color:#888;padding:6px 0">
-                ▸ {len(eliminated)} funds eliminated — click to expand
-              </summary>
-              <table style="width:100%;border-collapse:collapse;margin-top:8px">
-                <tr style="background:#f5f5f5">
-                  <th style="padding:4px 8px;font-size:11px;text-align:left;color:#555">Fund</th>
-                  <th style="padding:4px 8px;font-size:11px;text-align:left;color:#555">Reason</th>
-                </tr>
-                {elim_rows}
-              </table>
-            </details>"""
-
-        strategy_badge = ("INDEX" if is_passive else "ACTIVE")
-        badge_color    = ("#2563EB" if is_passive else "#059669")
-
-        category_sections += f"""
-        <div style="margin-bottom:32px">
-          <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px;
-                      border-bottom:2px solid #1B3A6B;padding-bottom:8px">
-            <h2 style="margin:0;font-size:18px;color:#1B3A6B;font-family:Arial,sans-serif">{category}</h2>
-            <span style="background:{badge_color};color:#fff;font-size:10px;font-weight:700;
-                         padding:2px 8px;border-radius:10px;margin-left:4px">{strategy_badge}</span>
-            <span style="font-size:12px;color:#888;margin-left:auto">
-              {total_f} screened → {passed_f} qualified → Top {min(TOP_N, len(top_funds))} shown
-            </span>
-          </div>
-          {cards_html}
-          {elim_section}
-        </div>"""
-
-    html = f"""<!DOCTYPE html>
-<html>
-<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0">
+    body = f"""<!DOCTYPE html>
+<html><head><meta charset="utf-8">
 <style>
-  body {{ margin:0;padding:0;background:#edf2f7;font-family:Arial,Helvetica,sans-serif; }}
-  details summary::-webkit-details-marker {{ display:none; }}
+  body {{ font-family: Arial, sans-serif; color: #222; margin: 0; padding: 0; background: #f4f6f9; }}
+  .wrapper {{ max-width: 860px; margin: 0 auto; background: #fff; }}
+  .header  {{ background: linear-gradient(135deg, #1B3A6B 0%, #2C5F8A 100%); padding: 28px 32px; }}
+  .content {{ padding: 24px 32px 32px 32px; }}
+  h2 {{ font-size: 18px; }}
 </style>
-</head>
-<body>
-<table width="100%" cellpadding="0" cellspacing="0" style="background:#edf2f7;padding:20px 0">
-<tr><td align="center">
-<table width="680" cellpadding="0" cellspacing="0" style="max-width:680px;width:100%">
-
-  <!-- HEADER -->
-  <tr><td style="background:#1B3A6B;padding:28px 32px;border-radius:8px 8px 0 0">
-    <div style="color:#aac4e8;font-size:11px;text-transform:uppercase;letter-spacing:2px;margin-bottom:6px">MF Master Plan v3 — Quarterly Review</div>
-    <div style="color:#fff;font-size:24px;font-weight:700">{quarter} — Top {TOP_N} Funds Per Category</div>
-    <div style="color:#aac4e8;font-size:12px;margin-top:6px">
-      Generated: {run_date} &nbsp;·&nbsp;
-      {total_screened} screened &nbsp;·&nbsp; {total_eliminated} eliminated &nbsp;·&nbsp;
-      {total_passed} qualified
-    </div>
-  </td></tr>
-
-  <!-- P/E SIGNAL -->
-  <tr><td style="background:{pe_color};padding:13px 32px">
-    <div style="color:#fff;font-size:13px;font-weight:600">📊 Deployment Signal: {pe_msg}</div>
-  </td></tr>
-
-  <!-- METHODOLOGY NOTE -->
-  <tr><td style="background:#fff;padding:16px 32px 4px;border-left:1px solid #dde5ef;border-right:1px solid #dde5ef">
-    <p style="margin:0;color:#555;font-size:12px;line-height:1.7">
-      <b>Phase 2 gates</b>: History ≥ 5y · AUM bounds · Rolling consistency ≥ 65% ·
-      Absolute consistency ≥ 70% (≥12% CAGR windows) · Capital protection · 
-      <b>Upside capture ≥ 80</b> (new) · Down-market capture within threshold.<br>
-      <b>Phase 3 weights</b>: Rolling 18% · Sortino 20% · Info Ratio 15% · 
-      <b>Upside Capture 18%</b> (new) · Down Capture 15% · Max DD 9% · <b>TER 5%</b> (new).
-      Highlighted rows (🔶) = new v3 metrics.
+</head><body>
+<div class="wrapper">
+  <div class="header">
+    <h1 style="margin:0;color:#fff;font-size:22px">📈 MF Master Plan — Quarterly Review</h1>
+    <p style="margin:6px 0 0 0;color:#aac4e8;font-size:14px">
+      {today} &nbsp;·&nbsp; {total_screened} funds screened &nbsp;·&nbsp; {total_passed} qualified
     </p>
-  </td></tr>
-
-  <!-- CATEGORY RESULTS -->
-  <tr><td style="background:#fff;padding:24px 32px;border-left:1px solid #dde5ef;border-right:1px solid #dde5ef">
-    {category_sections}
-  </td></tr>
-
-  <!-- MANUAL CHECKLIST -->
-  <tr><td style="background:#f5f8fc;padding:18px 32px;border:1px solid #dde5ef">
-    <div style="color:#1B3A6B;font-weight:700;font-size:13px;margin-bottom:8px">📋 Manual Verification (Before Acting)</div>
-    <ul style="margin:0;padding-left:18px;color:#555;font-size:12px;line-height:2.0">
-      <li><b>Fund Manager</b>: Verify tenure on AMC website. If < 3 years, historical metrics may be invalid.</li>
-      <li><b>Sector Concentration</b>: Check factsheet. Avoid if single sector > 35%.</li>
-      <li><b>Stock Concentration</b>: Check factsheet. Avoid if top-10 holdings > 60% (high conviction risk).</li>
-      <li><b>Portfolio P/E</b>: Compare fund P/E vs benchmark P/E. Gap > 30% indicates style drift or valuation risk.</li>
-      <li><b>SEBI Stress Test</b> (Mid/Small Cap): Check days to liquidate 50% portfolio. > 30 days is risky.</li>
-      <li><b>Switching Cost</b>: Always calculate Exit Load + LTCG/STCG impact before switching.</li>
-    </ul>
-  </td></tr>
-  <tr><td style="background:#f5f8fc;padding:18px 32px;border:1px solid #dde5ef">
-    <div style="color:#1B3A6B;font-weight:700;font-size:13px;margin-bottom:8px">📋 Manual Verification (Before Acting)</div>
-    <ul style="margin:0;padding-left:18px;color:#555;font-size:12px;line-height:2.0">
-      <li><b>Fund Manager</b>: Verify the manager who built this track record hasn't left recently (AMC website).</li>
-      <li><b>Sector Concentration</b>: No single sector > 35%? (Fund factsheet → Sector allocation).</li>
-      <li><b>Stock Concentration</b>: Top-10 holdings < 70%? Above this = concentrated, single-stock risk.</li>
-      <li><b>Portfolio P/E</b>: Is it in line with category peers? (Value Research / Morningstar).</li>
-      <li><b>SEBI Stress Test</b> (Mid/Small Cap): Liquidation days for 50% of portfolio.</li>
-      <li><b>Switching cost</b>: Compute exit load + LTCG/STCG before switching from existing holdings.</li>
-    </ul>
-  </td></tr>
-
-  <!-- QUARTERLY REMINDERS -->
-  <tr><td style="background:#edf2f7;padding:14px 32px;border:1px solid #dde5ef">
-    <div style="color:#1B3A6B;font-weight:700;font-size:13px;margin-bottom:6px">📌 Quarterly Checklist</div>
-    <ul style="margin:0;padding-left:18px;color:#555;font-size:12px;line-height:1.9">
-      <li>SIPs are on autopilot — never pause regardless of market levels.</li>
-      <li>Review arbitrage fund balance vs deployment signal above.</li>
-      <li>Fund no longer in top 3? Check exit triggers before switching — do the tax maths first.</li>
-      <li>February: LTCG tax harvesting — book gains below ₹1.25L to reset cost basis.</li>
-    </ul>
-  </td></tr>
-
-  <!-- FOOTER -->
-  <tr><td style="background:#1B3A6B;padding:16px 32px;border-radius:0 0 8px 8px;text-align:center">
-    <div style="color:#aac4e8;font-size:11px;line-height:1.6">
-      For personal use only. Not financial advice. Consult a SEBI-registered advisor before investing.<br>
-      Data: mfapi.in · AMFI India · NSE India · RBI. All computations local. MF Master Plan v3.
+  </div>
+  
+  <div class="content">
+    <div style="background:{pe_color}18;border-left:4px solid {pe_color};
+                padding:12px 16px;border-radius:4px;margin-bottom:20px;font-size:14px">
+      <strong>Deployment Signal:</strong> {pe_msg}
     </div>
-  </td></tr>
+    
+    {lc_html}
+    
+    {"<h2 style='color:#1B3A6B;border-bottom:2px solid #1B3A6B;padding-bottom:6px;margin-top:28px'>🧠 Active Funds</h2>" if other_cats else ""}
+    {other_html}
+    
+    {methodology_html}
+    {checklist_html}
+    
+    <p style="font-size:11px;color:#aaa;margin-top:20px;text-align:center">
+      Generated by MF Master Plan v4.0 · Data: mfapi.in + AMFI India ·
+      This is not financial advice. Always verify with a SEBI-registered advisor.
+    </p>
+  </div>
+</div>
+</body></html>"""
 
-</table>
-</td></tr>
-</table>
-</body>
-</html>"""
-
-    return html
+    return body
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Sender
+# SMTP Sender
 # ─────────────────────────────────────────────────────────────────────────────
 
-def send_email(html_body: str) -> None:
-    password = EMAIL_PASSWORD or os.environ.get("MF_EMAIL_PASSWORD", "")
-    if not password:
-        raise ValueError(
-            "Email password not set. Export MF_EMAIL_PASSWORD or set EMAIL_PASSWORD in config.py."
-        )
+def send_email(html: str) -> None:
+    """Send the HTML report to all subscribers via Gmail SMTP."""
+    if not EMAIL_PASSWORD:
+        raise ValueError("EMAIL_PASSWORD not set in .env — run python check_env.py to diagnose")
 
-    msg            = MIMEMultipart("alternative")
-    msg["Subject"] = EMAIL_SUBJECT
+    msg = MIMEMultipart("alternative")
+    msg["Subject"] = f"{EMAIL_SUBJECT} — {date.today().strftime('%d %b %Y')}"
     msg["From"]    = EMAIL_SENDER
     msg["To"]      = ", ".join(SUBSCRIBERS)
-    msg.attach(MIMEText(html_body, "html"))
+    msg.attach(MIMEText(html, "html"))
 
     with smtplib.SMTP_SSL("smtp.gmail.com", 465) as server:
-        server.login(EMAIL_SENDER, password)
+        server.login(EMAIL_SENDER, EMAIL_PASSWORD)
         server.sendmail(EMAIL_SENDER, SUBSCRIBERS, msg.as_string())
-
-    print(f"  Email sent to {len(SUBSCRIBERS)} subscriber(s): {', '.join(SUBSCRIBERS)}")
+        print(f"  ✉️  Email sent to {len(SUBSCRIBERS)} subscriber(s)")
