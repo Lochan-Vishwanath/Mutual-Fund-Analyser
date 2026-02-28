@@ -40,6 +40,21 @@ PE_THRESHOLDS = {
 # ── SCREENING PARAMETERS ─────────────────────────────────────────────────
 ROLLING_WINDOW_YEARS    = 3     # 3-year rolling return windows
 ROLLING_CONSISTENCY_MIN = 0.65  # must beat benchmark > 65% of windows
+ROLLING_CONSISTENCY_FLOOR = 0.50 # Hard floor: must beat benchmark at least 50%
+
+ABSOLUTE_RETURN_TARGET  = 0.12  # 12% absolute return target
+ABSOLUTE_RETURN_MIN_PCT = 0.70  # Must hit target > 70% of windows
+ABSOLUTE_RETURN_FLOOR_PCT = 0.50 # Hard floor: must hit target > 50%
+
+CAPITAL_PROTECTION_MAX  = 0.05  # Max 5% of windows with negative returns
+CAPITAL_PROTECTION_FLOOR = 0.10 # Hard floor: max 10% negative windows
+
+UP_CAPTURE_MIN          = 80    # Fund must participate >= 80% of benchmark rally
+UP_CAPTURE_FLOOR        = 70    # Hard floor: must participate >= 70%
+
+DOWN_CAPTURE_FLOOR      = 100   # Hard floor: must not be worse than index in down market (100)
+
+ROLLING_CONSISTENCY_MIN = 0.65  # must beat benchmark > 65% of windows
 MIN_HISTORY_YEARS       = 5     # discard funds with < 5 years of NAV data
 
 # Absolute return targets (Advisorkhoj method)

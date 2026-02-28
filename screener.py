@@ -18,9 +18,11 @@ from pathlib import Path
 from datetime import datetime
 
 from config import (
-    CATEGORIES, ROLLING_CONSISTENCY_MIN, SCORE_WEIGHTS,
+    CATEGORIES, ROLLING_CONSISTENCY_MIN, ROLLING_CONSISTENCY_FLOOR, SCORE_WEIGHTS,
     MIN_HISTORY_YEARS, ROLLING_WINDOW_YEARS, TOP_N,
-    ABSOLUTE_RETURN_MIN_PCT, CAPITAL_PROTECTION_MAX, UP_CAPTURE_MIN,
+    ABSOLUTE_RETURN_MIN_PCT, ABSOLUTE_RETURN_FLOOR_PCT,
+    CAPITAL_PROTECTION_MAX, CAPITAL_PROTECTION_FLOOR,
+    UP_CAPTURE_MIN, UP_CAPTURE_FLOOR, DOWN_CAPTURE_FLOOR
 )
 from fetcher import (
     get_all_direct_growth_funds_by_category,
@@ -199,7 +201,155 @@ def run_screening(previous_results: dict = None) -> dict[str, dict]:
                 print(f"  [WARN] Benchmark unavailable: {e}")
 
         # ── Step 3: Phase 2 — Elimination ────────────────────────────────
+        # ── Step 3: Phase 2 — Elimination ────────────────────────────────
         passed:         list[dict] = []
+        eliminated:     list[dict] = []
+        # Collect all computed metrics (even eliminated) for category averages
+        all_computed:   list[dict] = []
+
+        print(f"  Phase 1: Filtering by History & AUM...")
+        for i, fund in enumerate(all_funds):
+            code   = fund["code"]
+            name   = fund["name"]
+            prefix = f"  [{i+1:>3}/{total_found}]"
+
+            # Gate: History length
+            try:
+                nav_df = get_nav_history(code)
+            except Exception as e:
+                print(f"{prefix} SKIP   {name[:52]} — NAV fetch error")
+                eliminated.append({**fund, "reason": f"NAV fetch failed: {e}"})
+                continue
+
+            years_of_data = (nav_df["date"].iloc[-1] - nav_df["date"].iloc[0]).days / 365.25
+            if years_of_data < min_years:
+                print(f"{prefix} CUT    {name[:52]} — {years_of_data:.1f}y history (need {min_years}y)")
+                eliminated.append({**fund, "reason": f"Insufficient history: {years_of_data:.1f}y"})
+                continue
+
+            # Gate: AUM
+            aum = aum_map.get(code)
+            if aum is not None:
+                if aum_min and aum < aum_min:
+                    print(f"{prefix} CUT    {name[:52]} — AUM ₹{aum:.0f}Cr < min ₹{aum_min}Cr")
+                    eliminated.append({**fund, "reason": f"AUM too small: ₹{aum:.0f}Cr"})
+                    continue
+                if aum_max and aum > aum_max:
+                    print(f"{prefix} CUT    {name[:52]} — AUM ₹{aum:.0f}Cr > max ₹{aum_max}Cr")
+                    eliminated.append({**fund, "reason": f"AUM too large: ₹{aum:.0f}Cr"})
+                    continue
+
+            # Phase 1 Passed -> Compute metrics
+            try:
+                m = compute_all_metrics(nav_df, bench_df, rolling_window_years=ROLLING_WINDOW_YEARS)
+                m.update({"name": name, "code": code, "aum": aum})
+                m["ter"] = ter_map.get(code)
+                all_computed.append(m)
+            except Exception as e:
+                print(f"{prefix} SKIP   {name[:52]} — metric error: {e}")
+                eliminated.append({**fund, "reason": f"Metric computation failed: {e}"})
+                continue
+
+        # ── Phase 2: Hybrid Dynamic Gates ─────────────────────────────────────
+        if all_computed:
+            cat_stats = _compute_category_stats(all_computed)
+            print(f"\n  Category Stats for Dynamic Gates:")
+            for k, v in cat_stats.items():
+                if v is not None: print(f"    - {k:25}: {v:.2f}")
+
+            for m in all_computed:
+                name = m["name"]
+                code = m["code"]
+                prefix = f"  [GATE]"
+
+                # Gate: Negative Sharpe Ratio
+                sharpe = m.get("sharpe")
+                if sharpe is not None and sharpe < 0:
+                    print(f"{prefix} CUT    {name[:52]} — Negative Sharpe {sharpe:.2f}")
+                    eliminated.append({**m, "reason": f"Negative Sharpe Ratio: {sharpe:.2f}"})
+                    continue
+
+                if not is_passive:
+                    # Hybrid Gate: Rolling consistency
+                    rc = m.get("rolling_consistency")
+                    rc_med = cat_stats.get("rolling_consistency_median")
+                    if rc is not None and not np.isnan(rc):
+                        # Rule: Must beat Index floor AND be >= Category Median
+                        if rc < ROLLING_CONSISTENCY_FLOOR:
+                            reason = f"Rolling consistency {rc:.0%} < floor {ROLLING_CONSISTENCY_FLOOR:.0%}"
+                            print(f"{prefix} CUT    {name[:52]} — {reason}")
+                            eliminated.append({**m, "reason": reason})
+                            continue
+                        if rc_med is not None and rc < rc_med:
+                            reason = f"Rolling consistency {rc:.0%} < category median {rc_med:.0%}"
+                            print(f"{prefix} CUT    {name[:52]} — {reason}")
+                            eliminated.append({**m, "reason": reason})
+                            continue
+
+                    # Hybrid Gate: Absolute return consistency
+                    ac = m.get("absolute_consistency")
+                    ac_med = cat_stats.get("absolute_consistency_median")
+                    if ac is not None and not np.isnan(ac):
+                        if ac < ABSOLUTE_RETURN_FLOOR_PCT:
+                            reason = f"Abs return consistency {ac:.0%} < floor {ABSOLUTE_RETURN_FLOOR_PCT:.0%}"
+                            print(f"{prefix} CUT    {name[:52]} — {reason}")
+                            eliminated.append({**m, "reason": reason})
+                            continue
+                        if ac_med is not None and ac < ac_med:
+                            reason = f"Abs return consistency {ac:.0%} < category median {ac_med:.0%}"
+                            print(f"{prefix} CUT    {name[:52]} — {reason}")
+                            eliminated.append({**m, "reason": reason})
+                            continue
+
+                    # Hybrid Gate: Capital protection
+                    cp = m.get("capital_protection")
+                    if cp is not None and not np.isnan(cp):
+                        if cp > CAPITAL_PROTECTION_FLOOR:
+                            reason = f"Negative windows {cp:.0%} > floor {CAPITAL_PROTECTION_FLOOR:.0%}"
+                            print(f"{prefix} CUT    {name[:52]} — {reason}")
+                            eliminated.append({**m, "reason": reason})
+                            continue
+                        # (Optional: we could add a category-relative gate for CP, but 5-10% is already strict)
+
+                    # Hybrid Gate: Upside Capture
+                    uc = m.get("up_capture")
+                    uc_avg = cat_stats.get("up_capture_mean")
+                    if uc is not None and not np.isnan(uc):
+                        if uc < UP_CAPTURE_FLOOR:
+                            reason = f"Up capture {uc:.1f} < floor {UP_CAPTURE_FLOOR}"
+                            print(f"{prefix} CUT    {name[:52]} — {reason}")
+                            eliminated.append({**m, "reason": reason})
+                            continue
+                        if uc_avg is not None and uc < uc_avg:
+                            reason = f"Up capture {uc:.1f} < category average {uc_avg:.1f}"
+                            print(f"{prefix} CUT    {name[:52]} — {reason}")
+                            eliminated.append({**m, "reason": reason})
+                            continue
+
+                    # Hybrid Gate: Downside Capture
+                    dc = m.get("down_capture")
+                    dc_avg = cat_stats.get("down_capture_mean")
+                    if dc is not None and not np.isnan(dc):
+                        if dc > DOWN_CAPTURE_FLOOR:
+                            reason = f"Down capture {dc:.1f} > floor {DOWN_CAPTURE_FLOOR}"
+                            print(f"{prefix} CUT    {name[:52]} — {reason}")
+                            eliminated.append({**m, "reason": reason})
+                            continue
+                        # Use dc_max from config if provided, otherwise use category average
+                        effective_dc_max = dc_max if dc_max is not None else dc_avg
+                        if effective_dc_max is not None and dc > effective_dc_max:
+                            reason = f"Down capture {dc:.1f} > category limit {effective_dc_max:.1f}"
+                            print(f"{prefix} CUT    {name[:52]} — {reason}")
+                            eliminated.append({**m, "reason": reason})
+                            continue
+
+                # If we reached here, fund passed all gates
+                print(f"{prefix} PASS   {name[:52]}")
+                passed.append(m)
+
+        total_passed = len(passed)
+        print(f"\n  Phase 2: {total_passed} funds passed hybrid gates")
+
         eliminated:     list[dict] = []
         # Collect all computed metrics (even eliminated) for category averages
         all_computed:   list[dict] = []
@@ -417,6 +567,24 @@ def run_screening(previous_results: dict = None) -> dict[str, dict]:
 # ─────────────────────────────────────────────────────────────────────────────
 # Category Average Helper
 # ─────────────────────────────────────────────────────────────────────────────
+
+def _compute_category_stats(fund_list: list[dict]) -> dict:
+    """
+    Computes medians and means for key metrics to be used in dynamic gates.
+    """
+    keys = ["rolling_consistency", "absolute_consistency", "up_capture", "down_capture"]
+    stats = {}
+    for key in keys:
+        vals = [f.get(key) for f in fund_list 
+                if f.get(key) is not None and not (isinstance(f.get(key), float) and np.isnan(f.get(key)))]
+        if vals:
+            stats[f"{key}_median"] = float(np.median(vals))
+            stats[f"{key}_mean"]   = float(np.mean(vals))
+        else:
+            stats[f"{key}_median"] = None
+            stats[f"{key}_mean"]   = None
+    return stats
+
 
 def _compute_category_avg(fund_list: list[dict]) -> dict:
     """
