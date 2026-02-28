@@ -1,0 +1,54 @@
+{
+  "bucket1": {
+    "Large Cap (Passive)": {
+      "code": "118881",
+      "name": "Taurus Nifty 50 Index Fund - Direct Plan - Growth"
+    },
+    "Large Cap (Active)": {
+      "code": "118825",
+      "name": "Mirae Asset Large Cap Fund - Direct Plan - Growth"
+    },
+    "Large & MidCap": {
+      "code": "118834",
+      "name": "Mirae Asset Large & Midcap Fund - Direct Plan - Growth"
+    },
+    "Mid Cap": {
+      "code": "119071",
+      "name": "DSP Midcap Fund - Direct Plan - Growth"
+    },
+    "Small Cap": {
+      "code": "118778",
+      "name": "Nippon India Small Cap Fund - Direct Plan Growth Plan - Growth Option"
+    },
+    "Flexi Cap": {
+      "code": "120564",
+      "name": "Aditya Birla Sun Life Flexi Cap Fund - Growth - Direct Plan"
+    }
+  },
+  "bucket2": {
+    "Large Cap (Passive)": {
+      "code": "119648",
+      "name": "Aditya Birla Sun Life Nifty 50 Index Fund - Growth - Direct Plan"
+    },
+    "Large Cap (Active)": {
+      "code": "120586",
+      "name": "ICICI Prudential Large Cap Fund (erstwhile Bluechip Fund) - Direct Plan - Growth"
+    },
+    "Large & MidCap": {
+      "code": "118278",
+      "name": "CANARA ROBECO LARGE AND MID CAP FUND - DIRECT PLAN - GROWTH OPTION"
+    },
+    "Mid Cap": {
+      "code": "118533",
+      "name": "Franklin India Mid Cap Fund - Direct - Growth"
+    },
+    "Small Cap": {
+      "code": "118525",
+      "name": "Franklin India Small Cap Fund - Direct - Growth"
+    },
+    "Flexi Cap": {
+      "code": "120564",
+      "name": "Aditya Birla Sun Life Flexi Cap Fund - Growth - Direct Plan"
+    }
+  }
+}
