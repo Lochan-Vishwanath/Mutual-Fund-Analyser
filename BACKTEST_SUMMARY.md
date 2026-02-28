@@ -1,63 +1,41 @@
-# Backtest Comparison: Best Performers (2019) vs. Tool-Based Selection
+# Backtest Comparison: 2019 Selection Strategies
 
-This backtest compares two strategies for mutual fund selection and portfolio management between **January 2019** and **February 2026**.
+This backtest compares three strategies for mutual fund selection and portfolio management between **January 2019** and **February 2026**.
 
 ## Methodology
-- **Bucket 1 (Best Performers of 2019)**: Selected the top fund by 3-year CAGR in each category as of Jan 1, 2019. This bucket follows a "buy and hold" strategy with monthly SIPs.
-- **Bucket 2 (Tool-based Selection)**: Initially selected the top-scoring fund using the "v4.0 Architecture" as of Jan 1, 2019. It uses monthly SIPs but includes a **2-quarter rebalancing rule**: If a fund fails any gate for two consecutive quarters, it is replaced by a fresh tool-based selection (no warnings).
-
-### Categories (6 Funds)
-1. Large Cap Index Fund (Passive)
-2. Large Cap Active Fund
-3. Large & Mid Cap Fund
-4. Mid Cap Fund
-5. Small Cap Fund
-6. Flexi Cap Fund
-
-### Tax Assumptions (User Specified)
-- **STCG**: 20.0% (Holding period < 1 year)
-- **LTCG**: 12.5% (Holding period > 1 year)
-- SIP Amount: ₹10,000 per fund per month (Total ₹60,000/month per bucket)
+- **Bucket 1 (Best of 2019)**: Top performers by 3-year CAGR as of Jan 1, 2019. Buy and hold.
+- **Bucket 2 (Tool + Rebalancing)**: Tool-selected funds with a **2-quarter rebalancing rule**. If a fund fails gates for 2 consecutive quarters, it is replaced.
+- **Bucket 3 (Tool - No Rebalancing)**: Same initial tool-selected funds as Bucket 2, but follows a **Buy and Hold** strategy.
 
 ---
 
-## Performance Summary (Jan 2019 – Feb 2026)
+## Category-wise Post-Tax Returns (Jan 2019 – Feb 2026)
 
-| Metric | Bucket 1 (Best of 2019) | Bucket 2 (Tool-based) |
-| :--- | :--- | :--- |
-| **Total Invested (Out-of-Pocket)** | **₹5,220,000.00** | **₹5,220,000.00** |
-| **Final Value (Pre-tax)** | **₹9,764,969.95** | **₹9,558,747.54** |
-| **Final Value (Post-tax)** | **₹9,192,890.06** | **₹9,102,551.24** |
-| **Absolute Return (%)** | **87.07%** | **83.12%** |
-| **Post-tax Return (%)** | **76.11%** | **74.38%** |
-| **Total Tax Paid (on Rebalance)** | ₹0.00 | ₹125,485.48 |
+| Category | Bucket 1 (Best of 2019) | Bucket 3 (Tool - No Rebal) | Bucket 2 (Tool + Rebal) |
+| :--- | :---: | :---: | :---: |
+| **Large Cap (Passive)** | 51.2% | **53.7%** | **53.7%** |
+| **Large Cap (Active)** | 56.0% | **74.7%** | **74.7%** |
+| **Large & MidCap** | **77.6%** | 68.2% | 70.5% |
+| **Mid Cap** | 76.6% | **85.2%** | **85.2%** |
+| **Small Cap** | **122.9%** | 93.2% | 93.2% |
+| **Flexi Cap** | **72.4%** | **72.4%** | 69.0% |
 
 ---
 
-## Detailed Observations
+## Overall Portfolio Summary
 
-### Bucket 1 Selections (Jan 2019)
-- **Large Cap Index**: Taurus Nifty 50 Index Fund
-- **Large Cap Active**: Mirae Asset Large Cap Fund
-- **Large & MidCap**: Mirae Asset Large & Midcap Fund
-- **Mid Cap**: DSP Midcap Fund
-- **Small Cap**: Nippon India Small Cap Fund
-- **Flexi Cap**: Aditya Birla Sun Life Flexi Cap Fund
+| Metric | Bucket 1 (Best) | Bucket 3 (Tool - Buy/Hold) | Bucket 2 (Tool - Rebal) |
+| :--- | :---: | :---: | :---: |
+| **Invested** | ₹52.2L | ₹52.2L | ₹52.2L |
+| **Final Val (Post-Tax)** | **₹91.9L** | ₹91.1L | ₹91.0L |
+| **Return (%)** | **76.1%** | 74.6% | 74.4% |
 
-### Bucket 2 Selections & Rebalancing
-- **Initial Selection (Jan 2019)**:
-    - Large Cap Index: Aditya Birla Sun Life Nifty 50 Index Fund
-    - Large Cap Active: ICICI Prudential Large Cap Fund
-    - Large & MidCap: Canara Robeco Large and Mid Cap Fund
-    - Mid Cap: Franklin India Mid Cap Fund
-    - Small Cap: Franklin India Small Cap Fund
-    - Flexi Cap: Aditya Birla Sun Life Flexi Cap Fund
-- **Rebalances**:
-    - **Jun 2022 (Flexi Cap)**: Aditya Birla Sun Life Flexi Cap → quant Flexi Cap Fund.
-    - **Jun 2025 (Large & MidCap)**: Canara Robeco Large and Mid Cap → Axis Large & Mid Cap Fund.
-    - **Dec 2025 (Large & MidCap)**: Axis Large & Mid Cap Fund → Motilal Oswal Large and Midcap Fund.
+---
 
-## Conclusion
-In this specific window (2019–2026), the **Best Performers of 2019** (Bucket 1) slightly outperformed the **Tool-based Strategy** (Bucket 2) by **1.73%** in post-tax terms. 
-
-Bucket 2's performance was significantly impacted by the **₹125,485 tax bill** incurred during rebalancing. This highlights the "tax friction" of active portfolio management — a strategy must generate enough alpha to overcome the immediate tax outgo from switching funds.
+## Key Findings
+1. **Selection Alpha**: The tool (Bucket 3) significantly outperformed the "past winners" (Bucket 1) in the **Large Cap (Active)** and **Mid Cap** categories.
+2. **The "Nippon Small Cap" Factor**: Bucket 1's overall victory is largely driven by *Nippon India Small Cap*, which returned 122.9% vs the tool's pick (*Franklin Small Cap*) at 93.2%.
+3. **Rebalancing Impact**:
+    - **Helped**: In *Large & MidCap*, rebalancing from *Canara Robeco* to *Axis* and then *Motilal Oswal* improved returns from 68.2% to 70.5%.
+    - **Hurt**: In *Flexi Cap*, rebalancing from *ABSL* to *quant* in 2022 reduced returns from 72.4% to 69.0% due to tax friction and timing.
+4. **Tax Friction**: Bucket 2 incurred significant taxes during rebalancing. In the overall portfolio, the "buy and hold" version of the tool (Bucket 3) beat the rebalancing version (Bucket 2) by 0.2% absolute return, proving that rebalancing must provide substantial alpha to cover tax costs.
