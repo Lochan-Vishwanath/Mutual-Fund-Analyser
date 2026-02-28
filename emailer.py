@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 # ─────────────────────────────────────────────────────────────────────────────
 # emailer.py  —  Builds the HTML quarterly email and sends it.
 #

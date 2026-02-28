@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 # ─────────────────────────────────────────────────────────────────────────────
 # screener.py  —  Phase 2 elimination + Phase 3 weighted scoring.
 #
@@ -288,15 +290,12 @@ def run_screening(previous_results: dict = None) -> dict[str, dict]:
 
                     # Hybrid Gate: Capital protection
                     cp = m.get("capital_protection")
-                    # Hybrid Gate: Capital protection
-                    cp = m.get("capital_protection")
                     if cp is not None and not np.isnan(cp):
                         if cp > CAPITAL_PROTECTION_FLOOR:
                             reason = f"Negative windows {cp:.0%} > floor {CAPITAL_PROTECTION_FLOOR:.0%}"
                             print(f"{prefix} CUT    {name[:52]} — {reason}")
                             eliminated.append({**m, "reason": reason})
                             continue
-                        # (Optional: we could add a category-relative gate for CP, but 5-10% is already strict)
 
                     # Hybrid Gate: Upside Capture
                     uc = m.get("up_capture")
@@ -312,118 +311,19 @@ def run_screening(previous_results: dict = None) -> dict[str, dict]:
                     dc = m.get("down_capture")
                     dc_avg = cat_stats.get("down_capture_mean")
                     if dc is not None and not np.isnan(dc):
-                        if dc_avg is not None and dc > dc_avg:
-                            reason = f"Down capture {dc:.1f} > category average {dc_avg:.1f}"
+                        # Must protect better than category average OR stay within category limit (if set)
+                        limit = dc_max if dc_max is not None else dc_avg
+                        if limit is not None and dc > limit:
+                            reason = f"Down capture {dc:.1f} > limit {limit:.1f}"
                             print(f"{prefix} CUT    {name[:52]} — {reason}")
                             eliminated.append({**m, "reason": reason})
                             continue
-
-                    dc_avg = cat_stats.get("down_capture_mean")
-                    if dc is not None and not np.isnan(dc):
-                        # Use dc_max from config if provided, otherwise use category average
-                        effective_dc_max = dc_max if dc_max is not None else dc_avg
-                        if effective_dc_max is not None and dc > effective_dc_max:
-                            reason = f"Down capture {dc:.1f} > category limit {effective_dc_max:.1f}"
-                            print(f"{prefix} CUT    {name[:52]} — {reason}")
-                            eliminated.append({**m, "reason": reason})
-                            continue
-
                 # If we reached here, fund passed all gates
                 print(f"{prefix} PASS   {name[:52]}")
                 passed.append(m)
 
         total_passed = len(passed)
         print(f"\n  Phase 2: {total_passed} funds passed hybrid gates")
-
-
-        # Collect all computed metrics (even eliminated) for category averages
-        all_computed:   list[dict] = []
-
-        for i, fund in enumerate(all_funds):
-            code   = fund["code"]
-            name   = fund["name"]
-            prefix = f"  [{i+1:>3}/{total_found}]"
-
-            # Gate: History length
-            try:
-                nav_df = get_nav_history(code)
-            except Exception as e:
-                print(f"{prefix} SKIP   {name[:52]} — NAV fetch error")
-                eliminated.append({**fund, "reason": f"NAV fetch failed: {e}"})
-                continue
-
-            years_of_data = (nav_df["date"].iloc[-1] - nav_df["date"].iloc[0]).days / 365.25
-            if years_of_data < min_years:
-                print(f"{prefix} CUT    {name[:52]} — {years_of_data:.1f}y history (need {min_years}y)")
-                eliminated.append({**fund, "reason": f"Insufficient history: {years_of_data:.1f}y"})
-                continue
-
-            # Gate: AUM
-            aum = aum_map.get(code)
-            if aum is not None:
-                if aum_min and aum < aum_min:
-                    print(f"{prefix} CUT    {name[:52]} — AUM ₹{aum:.0f}Cr < min ₹{aum_min}Cr")
-                    eliminated.append({**fund, "reason": f"AUM too small: ₹{aum:.0f}Cr"})
-                    continue
-                if aum_max and aum > aum_max:
-                    print(f"{prefix} CUT    {name[:52]} — AUM ₹{aum:.0f}Cr > max ₹{aum_max}Cr")
-                    eliminated.append({**fund, "reason": f"AUM too large: ₹{aum:.0f}Cr"})
-                    continue
-
-            # Compute all metrics
-            try:
-                m = compute_all_metrics(nav_df, bench_df, rolling_window_years=ROLLING_WINDOW_YEARS)
-            except Exception as e:
-                print(f"{prefix} SKIP   {name[:52]} — metric error: {e}")
-                eliminated.append({**fund, "reason": f"Metric computation failed: {e}"})
-                continue
-
-            # Attach TER from AMFI map
-            m["ter"] = ter_map.get(code)   # None if unavailable
-
-            m.update({"name": name, "code": code, "aum": aum})
-            all_computed.append(m)
-
-            # Gate: Negative Sharpe Ratio (Gap 4 Fix)
-            sharpe = m.get("sharpe")
-            if sharpe is not None and sharpe < 0:
-                print(f"{prefix} CUT    {name[:52]} — Negative Sharpe {sharpe:.2f}")
-                eliminated.append({**fund, **m, "reason": f"Negative Sharpe Ratio: {sharpe:.2f}"})
-                continue
-
-            # ── Active-only Phase 2 gates ─────────────────────────────────
-            if not is_passive:
-
-                # Gate: Rolling return consistency
-                rc = m.get("rolling_consistency")
-                if rc is not None and not np.isnan(rc) and rc < ROLLING_CONSISTENCY_MIN:
-                    print(f"{prefix} CUT    {name[:52]} — rolling {rc:.0%} < {ROLLING_CONSISTENCY_MIN:.0%}")
-                    eliminated.append({**fund, **m,
-                                       "reason": f"Rolling consistency {rc:.0%} < threshold {ROLLING_CONSISTENCY_MIN:.0%}"})
-                    continue
-
-                # Gate: Capital protection
-                cp = m.get("capital_protection")
-                if cp is not None and not np.isnan(cp) and cp > CAPITAL_PROTECTION_MAX:
-                    print(f"{prefix} CUT    {name[:52]} — negative returns in {cp:.0%} of windows")
-                    eliminated.append({**fund, **m,
-                                       "reason": f"Negative return windows {cp:.0%} > max {CAPITAL_PROTECTION_MAX:.0%}"})
-                    continue
-
-                # Gate: Down-market capture
-                if dc_max is not None:
-                    dc = m.get("down_capture")
-                    if dc is not None and not np.isnan(dc) and dc > dc_max:
-                        print(f"{prefix} CUT    {name[:52]} — down capture {dc:.1f} > {dc_max}")
-                        eliminated.append({**fund, **m,
-                                           "reason": f"Down capture {dc:.1f} > threshold {dc_max}"})
-                        continue
-
-            print(f"{prefix} PASS   {name[:52]}")
-            passed.append(m)
-
-        total_passed = len(passed)
-        print(f"\n  Phase 2: {total_passed}/{total_found} passed")
 
         # Compute category percentiles across ALL computed funds (not just passed)
         if all_computed:

@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 # ─────────────────────────────────────────────────────────────────────────────
 # metrics.py  —  Financial computations.
 #
