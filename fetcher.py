@@ -161,9 +161,15 @@ def get_all_direct_growth_funds_by_category(
 
     for cat_label, cat_funds in category_map.items():
         cat_lower = cat_label.lower()
-        if any(kw in cat_lower for kw in keywords_lower):
+        match = False
+        for kw in keywords_lower:
+            if kw in cat_lower:
+                if kw == "mid cap fund" and "large &" in cat_lower:
+                    continue
+                match = True
+                break
+        if match:
             funds.extend(cat_funds)
-
     # Deduplicate by code
     seen, unique = set(), []
     for f in funds:
