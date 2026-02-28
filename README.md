@@ -11,7 +11,10 @@ Two things kill retail investor returns more than bad fund selection:
 1.  **Switching Costs**: Chasing the current rank-1 fund creates exit loads, capital gains tax, and disrupted compounding.
 2.  **Trailing Return Illusion**: Selecting funds based on distorted base periods (like post-Covid recoveries) gives a false sense of alpha.
 
-This tool implements a **Unified Strategy** (v3) that combines absolute return distribution logic, a rigorous risk framework, and practical behavioral safeguards to find funds you can hold with confidence for 5+ years.
+This tool implements a **Unified Strategy** (v3) that combines:
+- **Benchmark Floor**: Ensures the fund beats a passive index consistently
+- **Dynamic Category Gates**: Adapts to market regimes (bear/bull) automatically
+- **Hybrid Scoring**: Combines risk-adjusted metrics with relative peer comparison
 
 ---
 
@@ -20,7 +23,7 @@ This tool implements a **Unified Strategy** (v3) that combines absolute return d
 ### 1. Large Cap "Winner's Circle" (Active vs Passive)
 Over any 10-year window, ~85% of active large-cap funds underperform the Nifty 50 TRI.
 - The UI provides a **side-by-side comparison** of top-tier Active Managers vs low-cost Index Funds.
-- **Active Funds** are scored on Alpha, Information Ratio, and Consistency.
+- **Active Funds** are scored on Rolling Consistency, Sortino, and Capture Ratios.
 - **Passive Funds** are ranked purely by **Tracking Error** and **Expense Ratio**.
 
 ### 2. The Continuity Rule (Holdover vs. New Entrant) 🛡️
@@ -28,28 +31,35 @@ The system remembers previous results to prevent "serial switching."
 - **Holdover 🛡️**: Fund was in the Top 3 last quarter. If it's still performing, **leave it alone**.
 - **New Entrant 🌟**: Fund is new to the Top 3. Requires the **Manual Checklist** before capital is moved.
 
-### 3. Smart Caching & Resource Efficiency ⚡
-- **Daily Cache**: The UI detects if an analysis was already run today and loads results instantly.
-- **Visual Feedback**: Real-time spinners indicate exactly when data is being fetched or prepared.
-- **Auto-Retry**: Robust handling for flaky AMFI and NSE endpoints.
+### 3. Hybrid Dynamic Gates (The v3 Innovation)
+Unlike traditional screeners that use static thresholds (e.g., "must have 12% returns"), this tool uses **Dynamic Gates** that adapt to market conditions:
+- **Benchmark Floor**: Hard floor - fund must beat the index >50% of the time (keeps managers honest)
+- **Category Median**: Dynamic - fund must be better than half its peers
+- **Category Average**: Dynamic - capture ratios are compared to peer average
+
+This prevents false "sell" signals in bear markets while still eliminating poor managers.
 
 ---
 
 ## 🧠 The Screening Strategy (v3)
 
-### Phase 2: The Hard Elimination Gates
-A fund that fails **any single gate** is immediately eliminated. There is no partial credit.
-
+### Phase 1: Hard Filters (Static)
 | Gate | Threshold | Rationale |
 | :--- | :--- | :--- |
-| **History** | ≥ 5 Years | Guarantees the fund has survived at least one full market cycle. |
+| **History** | ≥ 5-7 Years | Guarantees the fund has survived at least one full market cycle. |
 | **AUM Bounds** | ₹500Cr - ₹50kCr | Prevents liquidity risk (too small) or mandate drift (too large). |
-| **Negative Sharpe** | **Ratio > 0** | Disqualifies funds that returned less than risk-free T-bills (6.5%). |
-| **Rel. Consistency** | ≥ 65% | Fund must beat its benchmark in at least 65% of 3-year rolling windows. |
-| **Abs. Consistency** | ≥ 70% | Fund must deliver ≥ 12% CAGR in at least 70% of rolling windows. |
-| **Capital Protection** | ≤ 5% | Max 1 in 20 rolling windows can result in a loss. |
-| **Upside Capture** | ≥ 80 | Fund must participate in at least 80% of benchmark rallies. |
-| **Down Capture** | Cat. Specific | Flexi Cap (<95), Mid Cap (<100), Small Cap (<105). |
+
+### Phase 2: Hybrid Dynamic Gates (The Innovation)
+A fund must pass **BOTH** the Benchmark Floor AND the Category Gate:
+
+| Metric | Benchmark Floor | Category Gate | Rationale |
+| :--- | :--- | :--- | :--- |
+| **Rolling Consistency** | ≥ 50% | > Category Median | Must beat index consistently AND be better than peers. |
+| **Upside Capture** | — | > Category Average | Must participate in rallies better than average peers. |
+| **Downside Capture** | — | < Category Average | Must protect better than average peers. |
+| **Negative Sharpe** | > 0 | — | Hard filter: no negative risk-adjusted returns. |
+
+*Note: Absolute Return (12% CAGR) gate has been removed to prevent false exits during bear markets.*
 
 ### Phase 3: Multi-Dimensional Weighted Scoring
 Qualified survivors are ranked using a 1-4 quartile scale across seven dimensions:
@@ -92,21 +102,30 @@ cp .env.example .env
 # Edit .env with your Gmail App Password and Recipient Emails
 ```
 
-### 2. Launch the Dashboard
-The dashboard is the primary way to interact with the project. It handles caching, visualizes metrics, and allows manual email triggers.
+### 2. Run the Screener
 ```bash
-python -m streamlit run app.py
+# Dry run (preview results in console)
+python main.py --dry
+
+# Send email to subscribers
+python main.py --auto
 ```
 
-### 3. CLI Power Tools
-- `python main.py --dry`: Preview the full report in the console without sending emails.
+### 3. Backtesting (Historical Validation)
+```bash
+# Test how the screener would have performed with data as of a specific date
+python backtest.py 2020-06-30
+python backtest.py 2023-06-30
+```
+
+### 4. CLI Power Tools
 - `python utils.py search "Parag Parikh"`: Find scheme codes for any fund.
 - `python utils.py verify 122639`: Run a deep health check on a specific fund.
-- `python check_env.py`: Diagnostic tool to verify your `.env` settings.
 
 ---
 
 ## 🤖 Automation (GitHub Actions)
+
 The project includes a pre-configured workflow (`.github/workflows/quarterly.yml`) that runs on the **1st of every quarter** (Jan, Apr, Jul, Oct).
 
 **To enable:**
@@ -117,8 +136,9 @@ The project includes a pre-configured workflow (`.github/workflows/quarterly.yml
 ---
 
 ## 📂 Architecture Overview
-- `app.py`: Streamlit Dashboard with smart caching and UI loaders.
-- `screener.py`: The heart of the system. Implements Phase 2 gates and Phase 3 scoring.
+- `main.py`: Orchestrator - runs screening and sends emails.
+- `backtest.py`: Historical validation tool for testing the screener on past data.
+- `screener.py`: The heart of the system. Implements Phase 2 (Hybrid Gates) and Phase 3 (Scoring).
 - `metrics.py`: Financial engine (CAGR, Rolling, Sharpe, Sortino, Capture Ratios).
 - `fetcher.py`: Data ingestion from AMFI (AUM/Categories) and `mfapi.in` (NAV history).
 - `emailer.py`: Builds the "Winner's Circle" HTML reports.
