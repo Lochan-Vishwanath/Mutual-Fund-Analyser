@@ -270,7 +270,7 @@ def compute_all_metrics(nav_df: pd.DataFrame, bench_df: pd.DataFrame = None,
     _empty_bench = {
         "beta": None, "alpha": None, "info_ratio": None,
         "tracking_error": None, "down_capture": None, "up_capture": None,
-        "rolling_consistency": None, "absolute_consistency": None,
+        "rolling_consistency": None, 
         "capital_protection": None,
     }
 
@@ -316,7 +316,7 @@ def compute_all_metrics(nav_df: pd.DataFrame, bench_df: pd.DataFrame = None,
     if len(fund_vals) <= window:
         metrics.update({
             "rolling_consistency": None,
-            "absolute_consistency": None,
+            
             "capital_protection": None,
         })
         return metrics
@@ -331,7 +331,7 @@ def compute_all_metrics(nav_df: pd.DataFrame, bench_df: pd.DataFrame = None,
     if roll_comb.empty:
         metrics.update({
             "rolling_consistency": None,
-            "absolute_consistency": None,
+            
             "capital_protection": None,
         })
         return metrics
@@ -340,14 +340,12 @@ def compute_all_metrics(nav_df: pd.DataFrame, bench_df: pd.DataFrame = None,
     b_series = roll_comb["bench"]
     total    = len(roll_comb)
 
-    from config import ABSOLUTE_RETURN_TARGET
-
+    
     # Relative Consistency: % of time beating benchmark
     metrics["rolling_consistency"] = (f_series > b_series).sum() / total
 
-    # Absolute Consistency: % of time >= 12% CAGR target
-    metrics["absolute_consistency"] = (f_series >= ABSOLUTE_RETURN_TARGET).sum() / total
-
+    # Capital Protection: % of time fund had NEGATIVE rolling CAGR
+    metrics["capital_protection"] = (f_series < 0).sum() / total
     # Capital Protection: % of time fund had NEGATIVE rolling CAGR
     metrics["capital_protection"] = (f_series < 0).sum() / total
 

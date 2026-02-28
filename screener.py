@@ -2,7 +2,6 @@
 # screener.py  —  Phase 2 elimination + Phase 3 weighted scoring.
 #
 # v3 Changes:
-#   - Phase 2 gate: up_capture >= UP_CAPTURE_MIN (new)
 #   - Phase 3 scoring: includes up_capture and ter_score (new)
 #   - Computes category percentiles after all funds are processed
 #   - TER fetched and scored (lower = better)
@@ -20,9 +19,7 @@ from datetime import datetime
 from config import (
     CATEGORIES, ROLLING_CONSISTENCY_MIN, ROLLING_CONSISTENCY_FLOOR, SCORE_WEIGHTS,
     MIN_HISTORY_YEARS, ROLLING_WINDOW_YEARS, TOP_N,
-    ABSOLUTE_RETURN_MIN_PCT, ABSOLUTE_RETURN_FLOOR_PCT,
-    CAPITAL_PROTECTION_MAX, CAPITAL_PROTECTION_FLOOR,
-    UP_CAPTURE_MIN, UP_CAPTURE_FLOOR, DOWN_CAPTURE_FLOOR
+    CAPITAL_PROTECTION_MAX, CAPITAL_PROTECTION_FLOOR
 )
 from fetcher import (
     get_all_direct_growth_funds_by_category,
@@ -170,6 +167,8 @@ def run_screening(previous_results: dict = None) -> dict[str, dict]:
         bench_code   = cfg.get("benchmark_code")
         aum_min      = cfg.get("aum_min",  0)
         aum_max      = cfg.get("aum_max",  None)
+        min_years    = cfg.get("min_history_years", MIN_HISTORY_YEARS)
+        aum_max      = cfg.get("aum_max",  None)
         dc_max       = cfg.get("down_capture_max", None)
         min_years    = cfg.get("min_history_years", MIN_HISTORY_YEARS)
 
@@ -286,21 +285,9 @@ def run_screening(previous_results: dict = None) -> dict[str, dict]:
                             eliminated.append({**m, "reason": reason})
                             continue
 
-                    # Hybrid Gate: Absolute return consistency
-                    ac = m.get("absolute_consistency")
-                    ac_med = cat_stats.get("absolute_consistency_median")
-                    if ac is not None and not np.isnan(ac):
-                        if ac < ABSOLUTE_RETURN_FLOOR_PCT:
-                            reason = f"Abs return consistency {ac:.0%} < floor {ABSOLUTE_RETURN_FLOOR_PCT:.0%}"
-                            print(f"{prefix} CUT    {name[:52]} — {reason}")
-                            eliminated.append({**m, "reason": reason})
-                            continue
-                        if ac_med is not None and ac < ac_med:
-                            reason = f"Abs return consistency {ac:.0%} < category median {ac_med:.0%}"
-                            print(f"{prefix} CUT    {name[:52]} — {reason}")
-                            eliminated.append({**m, "reason": reason})
-                            continue
 
+                    # Hybrid Gate: Capital protection
+                    cp = m.get("capital_protection")
                     # Hybrid Gate: Capital protection
                     cp = m.get("capital_protection")
                     if cp is not None and not np.isnan(cp):
@@ -315,11 +302,6 @@ def run_screening(previous_results: dict = None) -> dict[str, dict]:
                     uc = m.get("up_capture")
                     uc_avg = cat_stats.get("up_capture_mean")
                     if uc is not None and not np.isnan(uc):
-                        if uc < UP_CAPTURE_FLOOR:
-                            reason = f"Up capture {uc:.1f} < floor {UP_CAPTURE_FLOOR}"
-                            print(f"{prefix} CUT    {name[:52]} — {reason}")
-                            eliminated.append({**m, "reason": reason})
-                            continue
                         if uc_avg is not None and uc < uc_avg:
                             reason = f"Up capture {uc:.1f} < category average {uc_avg:.1f}"
                             print(f"{prefix} CUT    {name[:52]} — {reason}")
@@ -330,11 +312,14 @@ def run_screening(previous_results: dict = None) -> dict[str, dict]:
                     dc = m.get("down_capture")
                     dc_avg = cat_stats.get("down_capture_mean")
                     if dc is not None and not np.isnan(dc):
-                        if dc > DOWN_CAPTURE_FLOOR:
-                            reason = f"Down capture {dc:.1f} > floor {DOWN_CAPTURE_FLOOR}"
+                        if dc_avg is not None and dc > dc_avg:
+                            reason = f"Down capture {dc:.1f} > category average {dc_avg:.1f}"
                             print(f"{prefix} CUT    {name[:52]} — {reason}")
                             eliminated.append({**m, "reason": reason})
                             continue
+
+                    dc_avg = cat_stats.get("down_capture_mean")
+                    if dc is not None and not np.isnan(dc):
                         # Use dc_max from config if provided, otherwise use category average
                         effective_dc_max = dc_max if dc_max is not None else dc_avg
                         if effective_dc_max is not None and dc > effective_dc_max:
@@ -350,7 +335,7 @@ def run_screening(previous_results: dict = None) -> dict[str, dict]:
         total_passed = len(passed)
         print(f"\n  Phase 2: {total_passed} funds passed hybrid gates")
 
-        eliminated:     list[dict] = []
+
         # Collect all computed metrics (even eliminated) for category averages
         all_computed:   list[dict] = []
 
@@ -417,28 +402,12 @@ def run_screening(previous_results: dict = None) -> dict[str, dict]:
                                        "reason": f"Rolling consistency {rc:.0%} < threshold {ROLLING_CONSISTENCY_MIN:.0%}"})
                     continue
 
-                # Gate: Absolute return consistency (Advisorkhoj)
-                ac = m.get("absolute_consistency")
-                if ac is not None and not np.isnan(ac) and ac < ABSOLUTE_RETURN_MIN_PCT:
-                    print(f"{prefix} CUT    {name[:52]} — abs return < 12% in {1-ac:.0%} of windows")
-                    eliminated.append({**fund, **m,
-                                       "reason": f"Absolute return consistency {ac:.0%} < {ABSOLUTE_RETURN_MIN_PCT:.0%}"})
-                    continue
-
                 # Gate: Capital protection
                 cp = m.get("capital_protection")
                 if cp is not None and not np.isnan(cp) and cp > CAPITAL_PROTECTION_MAX:
                     print(f"{prefix} CUT    {name[:52]} — negative returns in {cp:.0%} of windows")
                     eliminated.append({**fund, **m,
                                        "reason": f"Negative return windows {cp:.0%} > max {CAPITAL_PROTECTION_MAX:.0%}"})
-                    continue
-
-                # Gate: Upside Capture (NEW in v3)
-                uc = m.get("up_capture")
-                if uc is not None and not np.isnan(uc) and uc < UP_CAPTURE_MIN:
-                    print(f"{prefix} CUT    {name[:52]} — up capture {uc:.1f} < {UP_CAPTURE_MIN}")
-                    eliminated.append({**fund, **m,
-                                       "reason": f"Upside capture {uc:.1f} < minimum {UP_CAPTURE_MIN}"})
                     continue
 
                 # Gate: Down-market capture
@@ -572,7 +541,7 @@ def _compute_category_stats(fund_list: list[dict]) -> dict:
     """
     Computes medians and means for key metrics to be used in dynamic gates.
     """
-    keys = ["rolling_consistency", "absolute_consistency", "up_capture", "down_capture"]
+    keys = ["rolling_consistency", "up_capture", "down_capture"]
     stats = {}
     for key in keys:
         vals = [f.get(key) for f in fund_list 

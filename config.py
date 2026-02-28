@@ -4,7 +4,6 @@
 # v3 Changes:
 #   - Added Large Cap (Active), Large & MidCap, MidCap & SmallCap categories
 #   - Updated SCORE_WEIGHTS: added up_capture (18%), TER (5%), rebalanced
-#   - Added UP_CAPTURE_MIN gate (funds that can't participate in rallies = cut)
 #   - Added TER_GATE_MAX_PERCENTILE: top 25% most expensive → penalised in score
 #
 # BENCHMARK CODES: Verify with: python utils.py search "<index name> Direct Growth"
@@ -39,31 +38,28 @@ PE_THRESHOLDS = {
 
 # ── SCREENING PARAMETERS ─────────────────────────────────────────────────
 ROLLING_WINDOW_YEARS    = 3     # 3-year rolling return windows
+ROLLING_CONSISTENCY_FLOOR = 0.50 # Hard floor: must beat benchmark at least 50%
+
+CAPITAL_PROTECTION_FLOOR = 0.10 # Hard floor: max 10% negative windows
+
+MIN_HISTORY_YEARS       = 5     # discard funds with < 5 years of NAV data
+ROLLING_WINDOW_YEARS    = 3     # 3-year rolling return windows
 ROLLING_CONSISTENCY_MIN = 0.65  # must beat benchmark > 65% of windows
 ROLLING_CONSISTENCY_FLOOR = 0.50 # Hard floor: must beat benchmark at least 50%
 
-ABSOLUTE_RETURN_TARGET  = 0.12  # 12% absolute return target
-ABSOLUTE_RETURN_MIN_PCT = 0.70  # Must hit target > 70% of windows
-ABSOLUTE_RETURN_FLOOR_PCT = 0.50 # Hard floor: must hit target > 50%
 
 CAPITAL_PROTECTION_MAX  = 0.05  # Max 5% of windows with negative returns
 CAPITAL_PROTECTION_FLOOR = 0.10 # Hard floor: max 10% negative windows
 
-UP_CAPTURE_MIN          = 80    # Fund must participate >= 80% of benchmark rally
-UP_CAPTURE_FLOOR        = 70    # Hard floor: must participate >= 70%
 
-DOWN_CAPTURE_FLOOR      = 100   # Hard floor: must not be worse than index in down market (100)
 
 ROLLING_CONSISTENCY_MIN = 0.65  # must beat benchmark > 65% of windows
 MIN_HISTORY_YEARS       = 5     # discard funds with < 5 years of NAV data
 
 # Absolute return targets (Advisorkhoj method)
-ABSOLUTE_RETURN_TARGET  = 0.12  # 12% absolute return target
-ABSOLUTE_RETURN_MIN_PCT = 0.70  # Must hit target > 70% of windows
 CAPITAL_PROTECTION_MAX  = 0.05  # Max 5% of windows with negative returns
 
 # Capture ratio gates (NEW in v3)
-UP_CAPTURE_MIN          = 80    # Fund must participate >= 80% of benchmark rally
 # (down_capture_max is set per category in CATEGORIES config below)
 
 # TER percentile gate: funds in the top X% most expensive get a scoring penalty
@@ -138,7 +134,8 @@ CATEGORIES = {
         # Common options: DSP Nifty 100 Index Fund, UTI Nifty 100 Index Fund
         "benchmark_code":         "120716",   # ← VERIFY: UTI Nifty Next 50 or similar
         "aum_min":                1000,
-        "aum_max":                None,        # No upper limit for large cap
+        "aum_max":                None,
+        "min_history_years":      7,
         "down_capture_max":       95,           # Large cap should protect better
         "min_history_years":      7,
     },
@@ -156,6 +153,7 @@ CATEGORIES = {
         "benchmark_code":         "149100",   # ← VERIFY before running
         "aum_min":                500,
         "aum_max":                30000,
+        "min_history_years":      5,
         "down_capture_max":       100,
         "min_history_years":      5,
     },
@@ -170,6 +168,7 @@ CATEGORIES = {
         "benchmark_code":         "149892",
         "aum_min":                500,
         "aum_max":                20000,
+        "min_history_years":      5,
         "down_capture_max":       100,
         "min_history_years":      5,
     },
@@ -184,6 +183,7 @@ CATEGORIES = {
         "benchmark_code":         "148614",
         "aum_min":                500,
         "aum_max":                12000,
+        "min_history_years":      5,
         "down_capture_max":       105,
         "min_history_years":      5,
     },
@@ -198,6 +198,7 @@ CATEGORIES = {
         "benchmark_code":         "147622",
         "aum_min":                500,
         "aum_max":                50000,
+        "min_history_years":      5,
         "down_capture_max":       95,
         "min_history_years":      7,
     },
