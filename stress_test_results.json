@@ -1,0 +1,18 @@
+{
+  "Peak (Pre-COVID)": {
+    "Best_of_Year": 54.370413315054364,
+    "Tool_Hold": 36.36702520950878
+  },
+  "Trough (COVID Low)": {
+    "Best_of_Year": 57.09553511724215,
+    "Tool_Hold": 35.12003409576041
+  },
+  "Peak (Post-COVID Rally)": {
+    "Best_of_Year": 26.417662926314065,
+    "Tool_Hold": 27.076564575972426
+  },
+  "Trough (Inflation/Rate Hike Low)": {
+    "Best_of_Year": 19.134733894311573,
+    "Tool_Hold": 22.370898697716136
+  }
+}

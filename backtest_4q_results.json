@@ -1,0 +1,208 @@
+{
+  "2019": {
+    "B1_2019_Best": {
+      "return": 76.10900506291462,
+      "categories": {
+        "Large Cap (Passive)": 51.17037873776265,
+        "Large Cap (Active)": 55.97786119343115,
+        "Large & MidCap": 77.57987012294645,
+        "Mid Cap": 76.64701031787277,
+        "Small Cap": 122.92092592200028,
+        "Flexi Cap": 72.35798408347442
+      }
+    },
+    "B3_2019_Tool_Hold": {
+      "return": 76.10900506291462,
+      "categories": {
+        "Large Cap (Passive)": 51.17037873776265,
+        "Large Cap (Active)": 55.97786119343115,
+        "Large & MidCap": 77.57987012294645,
+        "Mid Cap": 76.64701031787277,
+        "Small Cap": 122.92092592200028,
+        "Flexi Cap": 72.35798408347442
+      }
+    },
+    "B2_2019_Tool_4Q": {
+      "return": 66.51553611982264,
+      "categories": {
+        "Large Cap (Passive)": 51.17037873776265,
+        "Large Cap (Active)": 55.97786119343115,
+        "Large & MidCap": 74.71268688801122,
+        "Mid Cap": 59.5747598148213,
+        "Small Cap": 122.92092592200028,
+        "Flexi Cap": 34.736604162909266
+      }
+    }
+  },
+  "2020": {
+    "B1_2020_Best": {
+      "return": 54.370413315054364,
+      "categories": {
+        "Large Cap (Passive)": 39.30148256187393,
+        "Large Cap (Active)": 36.36702520950878,
+        "Large & MidCap": 60.2635574135979,
+        "Mid Cap": 66.3125571285249,
+        "Small Cap": 71.71226525866345,
+        "Flexi Cap": 52.26559231815704
+      }
+    },
+    "B3_2020_Tool_Hold": {
+      "return": 54.370413315054364,
+      "categories": {
+        "Large Cap (Passive)": 39.30148256187393,
+        "Large Cap (Active)": 36.36702520950878,
+        "Large & MidCap": 60.2635574135979,
+        "Mid Cap": 66.3125571285249,
+        "Small Cap": 71.71226525866345,
+        "Flexi Cap": 52.26559231815704
+      }
+    },
+    "B2_2020_Tool_4Q": {
+      "return": 52.63906248628301,
+      "categories": {
+        "Large Cap (Passive)": 39.30148256187393,
+        "Large Cap (Active)": 36.36702520950878,
+        "Large & MidCap": 57.78110697289438,
+        "Mid Cap": 61.82573589949201,
+        "Small Cap": 71.71226525866345,
+        "Flexi Cap": 48.84675901526552
+      }
+    }
+  },
+  "2021": {
+    "B1_2021_Best": {
+      "return": 31.164790141203124,
+      "categories": {
+        "Large Cap (Passive)": 24.575772666380402,
+        "Large Cap (Active)": 24.375623852364157,
+        "Large & MidCap": 38.10974047295686,
+        "Mid Cap": 43.95030321973634,
+        "Small Cap": 41.80499827134905,
+        "Flexi Cap": 14.172302364431989
+      }
+    },
+    "B3_2021_Tool_Hold": {
+      "return": 31.164790141203124,
+      "categories": {
+        "Large Cap (Passive)": 24.575772666380402,
+        "Large Cap (Active)": 24.375623852364157,
+        "Large & MidCap": 38.10974047295686,
+        "Mid Cap": 43.95030321973634,
+        "Small Cap": 41.80499827134905,
+        "Flexi Cap": 14.172302364431989
+      }
+    },
+    "B2_2021_Tool_4Q": {
+      "return": 29.447419724635004,
+      "categories": {
+        "Large Cap (Passive)": 24.575772666380402,
+        "Large Cap (Active)": 24.375623852364157,
+        "Large & MidCap": 36.121569015559515,
+        "Mid Cap": 40.69559626039443,
+        "Small Cap": 41.80499827134905,
+        "Flexi Cap": 9.110958281762404
+      }
+    }
+  },
+  "2022": {
+    "B1_2022_Best": {
+      "return": 24.650814406480535,
+      "categories": {
+        "Large Cap (Passive)": 19.153478550972668,
+        "Large Cap (Active)": 25.582918737685635,
+        "Large & MidCap": 28.823083900684708,
+        "Mid Cap": 21.624731913523433,
+        "Small Cap": 26.600528168197002,
+        "Flexi Cap": 26.12014516781973
+      }
+    },
+    "B3_2022_Tool_Hold": {
+      "return": 24.650814406480535,
+      "categories": {
+        "Large Cap (Passive)": 19.153478550972668,
+        "Large Cap (Active)": 25.582918737685635,
+        "Large & MidCap": 28.823083900684708,
+        "Mid Cap": 21.624731913523433,
+        "Small Cap": 26.600528168197002,
+        "Flexi Cap": 26.12014516781973
+      }
+    },
+    "B2_2022_Tool_4Q": {
+      "return": 25.443518513069698,
+      "categories": {
+        "Large Cap (Passive)": 19.153478550972668,
+        "Large Cap (Active)": 25.582918737685635,
+        "Large & MidCap": 28.235469690358507,
+        "Mid Cap": 26.968570763384637,
+        "Small Cap": 26.600528168197002,
+        "Flexi Cap": 26.12014516781973
+      }
+    }
+  },
+  "2023": {
+    "B1_2023_Best": {
+      "return": 12.716106979910059,
+      "categories": {
+        "Large Cap (Passive)": 20.31027515251951,
+        "Large Cap (Active)": 16.7107637019976,
+        "Large & MidCap": 9.085669603728874,
+        "Mid Cap": 5.173111990363188,
+        "Small Cap": 10.812520398410609,
+        "Flexi Cap": 14.204301032440547
+      }
+    },
+    "B3_2023_Tool_Hold": {
+      "return": 13.096824296209931,
+      "categories": {
+        "Large Cap (Passive)": 20.31027515251951,
+        "Large Cap (Active)": 16.7107637019976,
+        "Large & MidCap": 9.085669603728874,
+        "Mid Cap": 5.173111990363188,
+        "Flexi Cap": 14.204301032440547
+      }
+    },
+    "B2_2023_Tool_4Q": {
+      "return": 13.096824296209931,
+      "categories": {
+        "Large Cap (Passive)": 20.31027515251951,
+        "Large Cap (Active)": 16.7107637019976,
+        "Large & MidCap": 9.085669603728874,
+        "Mid Cap": 5.173111990363188,
+        "Flexi Cap": 14.204301032440547
+      }
+    }
+  },
+  "2024": {
+    "B1_2024_Best": {
+      "return": -0.21672145189042258,
+      "categories": {
+        "Large Cap (Passive)": 8.099182481428958,
+        "Large Cap (Active)": 6.995389624654136,
+        "Large & MidCap": -4.479584824000282,
+        "Mid Cap": -7.783445107850307,
+        "Small Cap": -4.462567920795069,
+        "Flexi Cap": 0.3306970352199956
+      }
+    },
+    "B3_2024_Tool_Hold": {
+      "return": 0.6324478418904933,
+      "categories": {
+        "Large Cap (Passive)": 8.099182481428958,
+        "Large Cap (Active)": 6.995389624654136,
+        "Large & MidCap": -4.479584824000282,
+        "Mid Cap": -7.783445107850307,
+        "Flexi Cap": 0.3306970352199956
+      }
+    },
+    "B2_2024_Tool_4Q": {
+      "return": 0.6324478418904933,
+      "categories": {
+        "Large Cap (Passive)": 8.099182481428958,
+        "Large Cap (Active)": 6.995389624654136,
+        "Large & MidCap": -4.479584824000282,
+        "Mid Cap": -7.783445107850307,
+        "Flexi Cap": 0.3306970352199956
+      }
+    }
+  }
+}
