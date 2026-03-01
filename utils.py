@@ -124,8 +124,9 @@ def cmd_count():
         min_hist  = cfg.get("min_history_years", 5)
         floor_key = cfg.get("consistency_floor_key", "")
         floor     = ROLLING_CONSISTENCY_FLOORS.get(floor_key, "—")
+        floor_str = f"{floor:.0%}" if isinstance(floor, (int, float)) else str(floor)
         print(f"  {cat_name:<40} [{strategy}]  {len(funds):>4} funds  "
-              f"({min_hist}yr hist, {rw}yr rolling, {floor:.0%} floor)")
+              f"({min_hist}yr hist, {rw}yr rolling, {floor_str} floor)")
         total += len(funds)
     print(f"\n  Total across all categories: {total}")
 

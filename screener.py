@@ -272,6 +272,94 @@ def _apply_continuity(top_n_funds: list[dict], category: str, previous_results: 
 # Main Screener
 # ─────────────────────────────────────────────────────────────────────────────
 
+# ─────────────────────────────────────────────────────────────────────────────
+# Phase 2 Helper Logic
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _apply_phase2_gates(
+    funds: list[dict],
+    is_passive: bool,
+    cat_stats: dict,
+    consistency_floor: float,
+    capture_ratio_min: float,
+    rolling_window_years: int,
+    verbose: bool = True
+) -> tuple[list[dict], list[dict]]:
+    passed = []
+    failed = []
+    
+    for m in funds:
+        name = m["name"]
+        code = m["code"]
+        px   = "  [GATE]"
+        
+        # ── Gate 3: Sharpe Ratio ───────────────────────────────────────
+        sharpe = m.get("sharpe")
+        if sharpe is not None and not np.isnan(sharpe) and sharpe < SHARPE_GATE_MIN:
+            reason = f"Negative Sharpe: {sharpe:.2f} (not compensating for equity risk)"
+            if verbose: print(f"{px} CUT    {name[:50]} — {reason}")
+            failed.append({**m, "reason": reason})
+            continue
+            
+        if is_passive:
+            if verbose: print(f"{px} PASS   {name[:50]} [PASSIVE]")
+            passed.append(m)
+            continue
+            
+        # ── Gate 4: TER Gate ───────────────────────────────────────────
+        ter = m.get("ter")
+        ter_median = cat_stats.get("ter_median")
+        if ter is not None and ter_median is not None:
+            if ter > ter_median + (TER_GATE_SPREAD * 100):
+                reason = f"TER {ter:.2f}% is {ter - ter_median:.2f}% above category median {ter_median:.2f}%"
+                if verbose: print(f"{px} CUT    {name[:50]} — {reason}")
+                failed.append({**m, "reason": reason})
+                continue
+                
+        # ── Gate 5: Rolling Consistency ───────────────────────────────
+        rc = m.get("rolling_consistency")
+        rc_med = cat_stats.get("rolling_consistency_median")
+        if rc is not None and not np.isnan(rc):
+            if rc < consistency_floor:
+                reason = f"Rolling consistency {rc:.0%} < floor {consistency_floor:.0%} ({rolling_window_years}yr windows)"
+                if verbose: print(f"{px} CUT    {name[:50]} — {reason}")
+                failed.append({**m, "reason": reason})
+                continue
+            if rc_med is not None and rc < rc_med:
+                reason = f"Rolling consistency {rc:.0%} < category median {rc_med:.0%}"
+                if verbose: print(f"{px} CUT    {name[:50]} — {reason}")
+                failed.append({**m, "reason": reason})
+                continue
+                
+        # ── Gate 6: Capital Protection ────────────────────────────────
+        cp = m.get("capital_protection")
+        if cp is not None and not np.isnan(cp):
+            if cp > CAPITAL_PROTECTION_FLOOR:
+                reason = f"Negative windows {cp:.0%} > {CAPITAL_PROTECTION_FLOOR:.0%} max ({rolling_window_years}yr)"
+                if verbose: print(f"{px} CUT    {name[:50]} — {reason}")
+                failed.append({**m, "reason": reason})
+                continue
+                
+        # ── Gate 7: Capture Ratio ─────────────────────────────────────
+        cr = m.get("capture_ratio")
+        cr_med = cat_stats.get("capture_ratio_median")
+        if cr is not None and not np.isnan(cr):
+            if cr < capture_ratio_min:
+                reason = f"Capture ratio {cr:.3f} < {capture_ratio_min:.3f} (negative asymmetry)"
+                if verbose: print(f"{px} CUT    {name[:50]} — {reason}")
+                failed.append({**m, "reason": reason})
+                continue
+            if cr_med is not None and cr < cr_med:
+                reason = f"Capture ratio {cr:.3f} < category median {cr_med:.3f}"
+                if verbose: print(f"{px} CUT    {name[:50]} — {reason}")
+                failed.append({**m, "reason": reason})
+                continue
+                
+        if verbose: print(f"{px} PASS   {name[:50]}")
+        passed.append(m)
+        
+    return passed, failed
+
 def run_screening(previous_results: dict = None) -> dict[str, dict]:
     """
     Runs the full v4 pipeline for every configured category.
@@ -399,80 +487,35 @@ def run_screening(previous_results: dict = None) -> dict[str, dict]:
 
         # ── Step 4: Phase 2 — Hybrid Dynamic Gates ─────────────────────────
         print(f"\n  Phase 2: Dynamic Gates...")
-        phase2_passed: list[dict] = []
-
-        for m in phase1_passed:
-            name = m["name"]
-            code = m["code"]
-            px   = "  [GATE]"
-
-            # ── Gate 3: Sharpe Ratio ───────────────────────────────────────
-            sharpe = m.get("sharpe")
-            if sharpe is not None and not np.isnan(sharpe) and sharpe < SHARPE_GATE_MIN:
-                print(f"{px} CUT    {name[:50]} — Negative Sharpe {sharpe:.2f}")
-                eliminated.append({**m, "reason": f"Negative Sharpe: {sharpe:.2f} (not compensating for equity risk)"})
-                continue
-
-            if is_passive:
-                # Passive funds skip active gates — only Sharpe gate applies
-                print(f"{px} PASS   {name[:50]} [PASSIVE]")
-                phase2_passed.append(m)
-                continue
-
-            # ── Gate 4: TER Gate (NEW in v4 — replaces TER scoring weight) ────
-            ter = m.get("ter")
-            ter_median = cat_stats.get("ter_median")
-            if ter is not None and ter_median is not None:
-                if ter > ter_median + (TER_GATE_SPREAD * 100):   # TER stored as %, threshold also in %
-                    reason = f"TER {ter:.2f}% is {ter - ter_median:.2f}% above category median {ter_median:.2f}%"
-                    print(f"{px} CUT    {name[:50]} — {reason}")
-                    eliminated.append({**m, "reason": reason})
-                    continue
-
-            # ── Gate 5: Rolling Consistency ───────────────────────────────
-            rc      = m.get("rolling_consistency")
-            rc_med  = cat_stats.get("rolling_consistency_median")
-            if rc is not None and not np.isnan(rc):
-                if rc < consistency_floor:
-                    reason = f"Rolling consistency {rc:.0%} < floor {consistency_floor:.0%} ({rolling_window_years}yr windows)"
-                    print(f"{px} CUT    {name[:50]} — {reason}")
-                    eliminated.append({**m, "reason": reason})
-                    continue
-                if rc_med is not None and rc < rc_med:
-                    reason = f"Rolling consistency {rc:.0%} < category median {rc_med:.0%}"
-                    print(f"{px} CUT    {name[:50]} — {reason}")
-                    eliminated.append({**m, "reason": reason})
-                    continue
-
-            # ── Gate 6: Capital Protection ────────────────────────────────
-            cp = m.get("capital_protection")
-            if cp is not None and not np.isnan(cp):
-                if cp > CAPITAL_PROTECTION_FLOOR:
-                    reason = f"Negative windows {cp:.0%} > {CAPITAL_PROTECTION_FLOOR:.0%} max ({rolling_window_years}yr)"
-                    print(f"{px} CUT    {name[:50]} — {reason}")
-                    eliminated.append({**m, "reason": reason})
-                    continue
-
-            # ── Gate 7: Capture Ratio (Division-based) ────────────────────
-            cr     = m.get("capture_ratio")
-            cr_med = cat_stats.get("capture_ratio_median")
-            if cr is not None and not np.isnan(cr):
-                if cr < CAPTURE_RATIO_MIN:
-                    reason = f"Capture ratio {cr:.3f} < 1.0 (negative asymmetry — loses more than it gains)"
-                    print(f"{px} CUT    {name[:50]} — {reason}")
-                    eliminated.append({**m, "reason": reason})
-                    continue
-                if cr_med is not None and cr < cr_med:
-                    reason = f"Capture ratio {cr:.3f} < category median {cr_med:.3f}"
-                    print(f"{px} CUT    {name[:50]} — {reason}")
-                    eliminated.append({**m, "reason": reason})
-                    continue
-
-            print(f"{px} PASS   {name[:50]}")
-            phase2_passed.append(m)
-
+        
+        # Pass 1: Strict Absolute Gates (per config floors)
+        phase2_passed, p2_failed = _apply_phase2_gates(
+            funds                = phase1_passed,
+            is_passive           = is_passive,
+            cat_stats            = cat_stats,
+            consistency_floor    = consistency_floor,
+            capture_ratio_min    = CAPTURE_RATIO_MIN,
+            rolling_window_years = rolling_window_years
+        )
+        
+        # Fallback Logic: If no funds passed strict gates, try relative median gates
+        if not phase2_passed and not is_passive:
+            print(f"  [WARN] Zero funds passed strict absolute gates. Falling back to relative median gates...")
+            fallback_consistency = cat_stats.get("rolling_consistency_median", 0.50) or 0.50
+            fallback_capture     = cat_stats.get("capture_ratio_median", 1.0) or 1.0
+            
+            phase2_passed, p2_failed = _apply_phase2_gates(
+                funds                = phase1_passed,
+                is_passive           = is_passive,
+                cat_stats            = cat_stats,
+                consistency_floor    = min(consistency_floor, fallback_consistency),
+                capture_ratio_min    = min(CAPTURE_RATIO_MIN, fallback_capture),
+                rolling_window_years = rolling_window_years
+            )
+        
+        eliminated.extend(p2_failed)
         total_passed = len(phase2_passed)
-        print(f"\n  Phase 2 result: {total_passed} funds passed hybrid gates")
+        print(f"\n  Phase 2 result: {total_passed} funds passed gates")
 
         # Compute category percentiles across all Phase 1 passers (not just Phase 2)
         # This gives proper peer-relative context even for eliminated funds
@@ -482,14 +525,14 @@ def run_screening(previous_results: dict = None) -> dict[str, dict]:
             f["rolling_category_percentile"] = pct_map.get(f["code"])
 
         # Fallback: if everything was eliminated, use Phase 1 passers sorted by 5Y CAGR
+        # Fallback: if STILL nothing passed (extremely rare), use Phase 1 CAGR fallback as last resort
         if not phase2_passed:
-            print(f"  [WARN] Zero funds passed Phase 2 — using Phase 1 fallback (sorted by 5Y CAGR)")
+            print(f"  [WARN] Zero funds passed even relative gates — using Phase 1 fallback (sorted by 5Y CAGR)")
             phase2_passed = sorted(
                 [f for f in phase1_passed if f.get("cagr_5y") is not None],
                 key=lambda x: x.get("cagr_5y", 0),
                 reverse=True,
-            )[:max(TOP_N, 5)]   # Keep slightly more for scoring
-
+            )[:max(TOP_N, 5)]
         # Category averages for UI display
         category_avg = _compute_category_avg(phase1_passed)
 
