@@ -22,11 +22,11 @@ load_dotenv()
 # ── EMAIL ─────────────────────────────────────────────────────────────────────
 EMAIL_SENDER   = os.getenv("EMAIL_SENDER",        "yourname@gmail.com")
 EMAIL_PASSWORD = os.getenv("MF_EMAIL_PASSWORD",   "")
-EMAIL_SUBJECT  = "Quarterly MF Review — Top 3 Funds Per Category"
+EMAIL_SUBJECT  = "Quarterly Mutual Fund Screening Results"
 SUBSCRIBERS    = os.getenv("SUBSCRIBERS",         "you@gmail.com").split(",")
 
 # ── TOP N FUNDS PER CATEGORY ──────────────────────────────────────────────────
-TOP_N = 3
+TOP_N = 999  # Effectively show all passing funds
 
 # ── RISK-FREE RATE ────────────────────────────────────────────────────────────
 # 91-day T-bill yield. Update quarterly from rbi.org.in
@@ -163,7 +163,7 @@ CATEGORIES = {
         "amfi_category_keywords": ["Large Cap Fund"],
         "name_must_contain":      [],
         # VERIFY: python utils.py search "UTI Nifty 100 Index Fund Direct"
-        "benchmark_code":         "120716",
+        "benchmark_code":         "147666",  # Axis Nifty 100 Index Fund (Direct)
         "aum_min":                2000,
         "aum_max":                80000,    # Raised from 12k: large-cap stocks absorb large AUM
         "min_history_years":      5,
@@ -179,7 +179,7 @@ CATEGORIES = {
         "amfi_category_keywords": ["Large & Mid Cap Fund"],
         "name_must_contain":      [],
         # VERIFY: python utils.py search "LargeMidcap 250 Index Direct"
-        "benchmark_code":         "149100",
+        "benchmark_code":         "149343",  # Edelweiss Nifty LargeMidcap 250 Index Fund (Direct)
         "aum_min":                1000,
         "aum_max":                40000,
         "min_history_years":      5,
@@ -195,7 +195,7 @@ CATEGORIES = {
         "strategy":               "active",
         "amfi_category_keywords": ["Mid Cap Fund"],
         "name_must_contain":      [],
-        "benchmark_code":         "149892",
+        "benchmark_code":         "147622",  # Motilal Oswal Nifty Midcap 150 Index Fund (Direct)
         "aum_min":                500,
         "aum_max":                25000,
         "min_history_years":      7,        # Must cover one full mid-cap cycle
@@ -212,7 +212,7 @@ CATEGORIES = {
         "strategy":               "active",
         "amfi_category_keywords": ["Small Cap Fund"],
         "name_must_contain":      [],
-        "benchmark_code":         "148614",
+        "benchmark_code":         "147623",  # Motilal Oswal Nifty Smallcap 250 Index Fund (Direct)
         "aum_min":                500,
         "aum_max":                15000,    # Strict: mandate drift starts early here
         "min_history_years":      7,
@@ -228,7 +228,7 @@ CATEGORIES = {
         "strategy":               "active",
         "amfi_category_keywords": ["Flexi Cap Fund"],
         "name_must_contain":      [],
-        "benchmark_code":         "147622",
+        "benchmark_code":         "147625",
         "aum_min":                2000,
         "aum_max":                None,     # No cap — Flexi Cap is mandate-agnostic
         "min_history_years":      5,

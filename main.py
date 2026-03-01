@@ -79,7 +79,7 @@ def run(send_mode: str = "ask"):
 
     # ── Console summary ────────────────────────────────────────────────────
     print("\n" + "=" * 65)
-    print("  TOP FUNDS SUMMARY")
+    print("  SUMMARY OF QUALIFIED FUNDS")
     print("=" * 65)
 
     for cat, data in results.items():

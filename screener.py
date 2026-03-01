@@ -107,9 +107,9 @@ def _passive_score(fund: dict, all_funds: list) -> float:
     ter_score = _quartile_score(fund.get("ter"),            [f.get("ter") for f in all_funds],
                                  higher_is_better=False)
     
-    # If TER is unavailable, use only TE (normalise weight to 1.0)
+    # If TER is unavailable, full weight on TE (normalised to 1.0)
     if fund.get("ter") is None:
-        return PASSIVE_SCORE_WEIGHTS["tracking_error"] * te_score
+        return te_score   # max 4.0, same scale as funds with TER data
     
     return (
         PASSIVE_SCORE_WEIGHTS["tracking_error"] * te_score +
@@ -555,7 +555,7 @@ def run_screening(previous_results: dict = None) -> dict[str, dict]:
         top_n_funds = ranked[:TOP_N]
 
         # ── Step 6: Phase 4 — Qualitative Flags ───────────────────────────
-        print(f"\n  Phase 4: Qualitative flags on top {TOP_N} funds...")
+        print(f"\n  Phase 4: Qualitative flags on qualified funds...")
         if not is_passive:
             top_n_funds = _apply_phase4_flags(top_n_funds, nav_map, bench_df, cat_stats)
         else:
@@ -570,8 +570,8 @@ def run_screening(previous_results: dict = None) -> dict[str, dict]:
         # ── Step 7: Continuity Rule ────────────────────────────────────────
         top_n_funds = _apply_continuity(top_n_funds, category, previous_results)
 
-        # ── Console summary ────────────────────────────────────────────────
-        print(f"\n  TOP {TOP_N} [{category}]:")
+        # ── Step 4: Final Results ──────────────────────────────────────────
+        print(f"\n  QUALIFIED FUNDS [{category}]:")
         for rank, f in enumerate(top_n_funds, 1):
             score = f.get("total_score", 0)
             cont  = f.get("continuity_status", "")

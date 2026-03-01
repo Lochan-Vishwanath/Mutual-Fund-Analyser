@@ -94,3 +94,19 @@ A rank drop alone isn't sufficient reason — mean reversion and style rotations
 
 The HTML report marks each top fund as Holdover or New Entrant. New Entrants require manual
 verification before allocating capital. Check the checklist in the report footer.
+
+## UI Metrics Guide
+
+| Column | Meaning | Why it matters |
+|---|---|---|
+| **Score /4** | Overall Weighted Score | Our final "rank". 4.0 is the best in the category. |
+| **RC [3yr rolling]** | Rolling Consistency | % of 3-year periods the fund beat its index. |
+| **Cat Pct** | Category Percentile | Where this fund stands compared to peers (90th pct = Top 10%). |
+| **Cap. Ratio** | Capture Ratio | **Upside ÷ Downside.** High means more offensive than defensive. |
+| **Up / Dn Capt.** | Raw Capture % | How much the fund moves when the index moves 100%. |
+| **Info Ratio** | Information Ratio | Pure measure of "Manager Skill" (Higher = More Skill). |
+| **α Stability** | Alpha Stability | How stable the excess return is. Lower is better. |
+| **Sortino** | Sortino Ratio | Return per unit of *bad* (downside) volatility. |
+| **5Y / 10Y CAGR** | Compounded Returns | Standard annualized returns for these long periods. |
+| **Max DD** | Max Drawdown | The "worst-case" drop from peak to trough. |
+| **Alpha / Beta** | Regression Metrics | **Alpha:** Outperformance. **Beta:** Volatility relative to market. |

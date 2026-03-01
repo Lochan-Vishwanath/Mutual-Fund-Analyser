@@ -74,10 +74,14 @@ def sharpe_ratio(series: pd.Series, risk_free_rate: float = RISK_FREE_RATE_ANNUA
 
 
 def sortino_ratio(series: pd.Series, risk_free_rate: float = RISK_FREE_RATE_ANNUAL) -> float | None:
-    """(CAGR - Rf) / Downside Deviation (returns below 0 only).
+    """(CAGR - Rf) / Downside Deviation (returns below MAR only).
     
     More informative than Sharpe for equity funds because it only penalises
     bad volatility (downside), not good volatility (upside swings).
+    
+    Downside Deviation = sqrt(mean(min(r_i - MAR, 0)^2)) * sqrt(252)
+    where MAR = daily risk-free rate.  All days are included in the mean;
+    days above MAR contribute zero to the sum of squares.
     """
     if len(series) < 252:
         return None
@@ -87,12 +91,15 @@ def sortino_ratio(series: pd.Series, risk_free_rate: float = RISK_FREE_RATE_ANNU
     end_val    = series.iloc[-1]
     if start_val <= 0:
         return None
-    ann_ret  = (end_val / start_val) ** (1 / years) - 1
+    ann_ret   = (end_val / start_val) ** (1 / years) - 1
     daily_ret = series.pct_change().dropna()
-    downside  = daily_ret[daily_ret < 0]
-    if len(downside) < 10:
+    daily_rf  = (1 + risk_free_rate) ** (1 / 252) - 1   # MAR per trading day
+    # Semi-deviation: include ALL days, but zero out those above MAR
+    diff = daily_ret - daily_rf
+    diff = diff.clip(upper=0.0)            # keep only negative deviations
+    if (diff < 0).sum() < 10:             # need enough downside observations
         return None
-    downside_dev = downside.std() * np.sqrt(252)
+    downside_dev = np.sqrt((diff ** 2).mean()) * np.sqrt(252)
     if downside_dev == 0:
         return None
     return (ann_ret - risk_free_rate) / downside_dev
@@ -116,12 +123,18 @@ def compute_beta(fund_ret: pd.Series, bench_ret: pd.Series) -> float | None:
 
 def compute_alpha(fund_ret: pd.Series, bench_ret: pd.Series, beta: float,
                   risk_free_rate: float = RISK_FREE_RATE_ANNUAL) -> float | None:
-    """Jensen's Alpha: Rp - [Rf + Beta * (Rm - Rf)]"""
+    """Jensen's Alpha: Rp - [Rf + Beta * (Rm - Rf)]
+    
+    Uses geometric (compound) annualization for Rp and Rm to be consistent
+    with CAGR used in Sharpe/Sortino.  Arithmetic mean * 252 overstates
+    returns in volatile periods (AM-GM inequality).
+    """
     df = pd.concat([fund_ret, bench_ret], axis=1).dropna()
     if len(df) < 60:
         return None
-    rp = df.iloc[:, 0].mean() * 252
-    rm = df.iloc[:, 1].mean() * 252
+    n = len(df)
+    rp = (1 + df.iloc[:, 0]).prod() ** (252 / n) - 1
+    rm = (1 + df.iloc[:, 1]).prod() ** (252 / n) - 1
     return rp - (risk_free_rate + beta * (rm - risk_free_rate))
 
 
@@ -389,12 +402,18 @@ def _monthly_aligned(fund_ret: pd.Series, bench_ret: pd.Series) -> pd.DataFrame 
 
 
 def _geo_mean_return(returns: pd.Series) -> float | None:
-    """Geometric mean of return series. Handles edge cases."""
+    """Geometric mean of return series. Handles edge cases.
+    
+    If the compounded product goes to zero or negative (catastrophic
+    cumulative loss), we clamp to a tiny positive value so the geometric
+    mean reflects near-total loss (~-100%) rather than silently dropping
+    the fund from capture analysis.
+    """
     if len(returns) == 0:
         return None
     compound = (1 + returns).prod()
     if compound <= 0:
-        return None
+        compound = 1e-10   # near-total loss, don't hide it
     return compound ** (1 / len(returns)) - 1
 
 
