@@ -305,10 +305,11 @@ def compute_manager_change_signals(
     
     Signal B — Alpha Sign Flip:
       If the fund's long-run rolling alpha is positive BUT the most recent
-      12-month alpha is negative AND below category median → fires.
+      2-quarter (126-day) alpha is negative → fires.
       
-      Rationale: A sustained alpha-generator suddenly underperforming peers
-      is a behavioural signal worth investigating.
+      Rationale: Aligned with biannual review cadence. A fund that
+      underperforms for 2 consecutive quarters signals a regime change
+      worth investigating (manager departure, style drift).
     
     Returns: {"manager_flag": bool, "manager_flag_reason": str | None,
               "signal_a": bool, "signal_b": bool}
@@ -364,10 +365,11 @@ def compute_manager_change_signals(
                 # Long-run alpha (all available history)
                 longrun_alpha = (aligned.iloc[:, 0] - aligned.iloc[:, 1]).mean() * 252
                 
-                # Recent 1-year alpha
-                recent_alpha = (aligned.iloc[-252:, 0] - aligned.iloc[-252:, 1]).mean() * 252
+                # Recent 2-quarter alpha (126 trading days ≈ 6 months)
+                # Aligned with biannual review cadence (April + October)
+                recent_alpha = (aligned.iloc[-126:, 0] - aligned.iloc[-126:, 1]).mean() * 252
                 
-                # Signal fires if long-run is positive but recent is negative
+                # Signal fires if long-run is positive but recent 2Q is negative
                 if longrun_alpha > 0 and recent_alpha < 0:
                     result["manager_signal_b"] = True
     
@@ -378,7 +380,7 @@ def compute_manager_change_signals(
         if result["manager_signal_a"]:
             reasons.append("Volatility signature has shifted significantly — risk profile may have changed")
         if result["manager_signal_b"]:
-            reasons.append("Long-run alpha is positive but recent 1Y alpha has turned negative")
+            reasons.append("Long-run alpha is positive but recent 2-quarter alpha has turned negative")
         result["manager_flag_reason"] = " | ".join(reasons) + " — verify fund manager tenure on AMFI/MFI Explorer"
     
     return result

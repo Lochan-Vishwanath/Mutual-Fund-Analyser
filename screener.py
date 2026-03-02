@@ -8,7 +8,7 @@ from __future__ import annotations
 #   Phase 2 : Hybrid Dynamic Gates (Sharpe, TER, Rolling Consistency,
 #              Capital Protection, Capture Ratio — all category-relative)
 #   Phase 3 : Weighted Scoring on 5 non-collinear metrics
-#              (IR 25%, Consistency 22%, Capture Ratio 20%, Sortino 18%, Alpha Stability 15%)
+#              (Capture Ratio 30%, RC 25%, Sortino 20%, IR 15%, Alpha Stability 10%)
 #   Phase 4 : Qualitative Flags
 #              (Manager Change [2-signal], High Beta, Concentration, PTR, Continuity)
 #
@@ -71,9 +71,9 @@ def _quartile_score(value, all_values: list, higher_is_better: bool = True) -> f
 def _active_score(fund: dict, all_funds: list) -> float:
     """
     Phase 3 weighted scoring for active funds.
-    5 non-collinear dimensions:
-      IR (25%) + Rolling Consistency (22%) + Capture Ratio (20%)
-      + Sortino (18%) + Alpha Stability (15%)
+    5 non-collinear dimensions (rebalanced for Portfolio Replan 2026):
+      Capture Ratio (30%) + Rolling Consistency (25%) + Sortino (20%)
+      + IR (15%) + Alpha Stability (10%)
     
     Alpha Stability: LOWER stddev is better (use higher_is_better=False)
     All others: higher is better.
@@ -548,7 +548,7 @@ def run_screening(previous_results: dict = None) -> dict[str, dict]:
             for f in phase2_passed:
                 f["total_score"] = _active_score(f, phase2_passed)
             ranked = sorted(phase2_passed, key=lambda x: x.get("total_score", 0), reverse=True)
-            score_desc = "Active score: IR×25% + RC×22% + CaptureRatio×20% + Sortino×18% + AlphaStability×15%"
+            score_desc = "Active score: CaptureRatio×30% + RC×25% + Sortino×20% + IR×15% + AlphaStability×10%"
         
         print(f"  Scoring method: {score_desc}")
 

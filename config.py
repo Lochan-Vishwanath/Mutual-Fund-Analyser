@@ -63,7 +63,8 @@ CAPTURE_RATIO_MIN = 1.0
 ROLLING_CONSISTENCY_FLOORS = {
     "large_cap_active": 0.55,
     "large_mid_cap":    0.55,
-    "flexi_cap":        0.55,
+    "flexi_cap":        0.50,   # Lowered from 0.55 — value-oriented flexi caps may
+                                # temporarily underperform in momentum-driven markets
     "mid_cap":          0.55,
     "small_cap":        0.60,   # Tighter — small cap cycles punish weak managers harder
 }
@@ -76,21 +77,20 @@ ROLLING_CONSISTENCY_FLOORS = {
 #   - max_drawdown (9%)    — collinear with Sortino, removed
 #   - ter_score (5%)       — moved to Phase 2 as a hard gate
 #
-# ADDED vs v3:
-#   - capture_ratio (20%)  — Upside/Downside as a single asymmetry metric
-#   - alpha_stability (15%)— rolling alpha stddev; rewards consistent alpha generation
-#
-# RAISED vs v3:
-#   - information_ratio: 15% → 25%  (cleanest measure of repeatable manager skill)
-#   - rolling_consistency: 18% → 22%
+# REBALANCED for Portfolio Replan 2026 (corpus-building + SWP withdrawal plan):
+#   - capture_ratio raised to 30%  — SWP survival requires crash-resilient funds
+#   - rolling_consistency raised to 25% — hard 2033 deadline needs reliability
+#   - sortino_ratio raised to 20%  — downside protection for withdrawal phase
+#   - information_ratio reduced to 15% — "elegant" outperformance less critical
+#   - alpha_stability reduced to 10% — SIP investors benefit from streaky returns
 SCORE_WEIGHTS = {
-    "information_ratio":   0.25,   # Alpha per unit of active risk (manager skill)
-    "rolling_consistency": 0.22,   # % windows beating benchmark (process > luck)
-    "capture_ratio":       0.20,   # Upside÷Downside capture (asymmetry quality)
-    "sortino_ratio":       0.18,   # Return per unit of downside volatility only
-    "alpha_stability":     0.15,   # Rolling alpha stddev — lower = more consistent
+    "capture_ratio":       0.30,   # Upside÷Downside capture — #1 for SWP survival
+    "rolling_consistency": 0.25,   # % windows beating benchmark — reliability
+    "sortino_ratio":       0.20,   # Return per unit of downside volatility only
+    "information_ratio":   0.15,   # Alpha per unit of active risk (manager skill)
+    "alpha_stability":     0.10,   # Rolling alpha stddev — lower = more consistent
 }
-# Sum = 0.25 + 0.22 + 0.20 + 0.18 + 0.15 = 1.00 ✓
+# Sum = 0.30 + 0.25 + 0.20 + 0.15 + 0.10 = 1.00 ✓
 
 # ─────────────────────────────────────────────────────────────────────────────
 # PHASE 4 FLAG THRESHOLDS
