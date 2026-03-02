@@ -218,7 +218,7 @@ def _render_active_table(top_funds: list, eliminated: list, category_avg: dict,
     
     # Show warnings section above table (always visible, populated only if warnings exist)
     if fund_warnings:
-        with st.expander("⚠️ Fund Warnings & Alerts", expanded=True):
+        with st.expander("⚠️ Fund Warnings & Alerts", expanded=False):
             for line in fund_warnings:
                 st.markdown(line)
     else:
