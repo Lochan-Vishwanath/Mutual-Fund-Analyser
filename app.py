@@ -128,17 +128,21 @@ def _render_active_table(top_funds: list, eliminated: list, category_avg: dict,
     for rank, f in enumerate(top_funds, 1):
         cont  = f.get("continuity_status", "")
         flags = []
-        if f.get("manager_flag"):    flags.append("⚠️ MANAGER")
+        manager_tooltip = ""
+        if f.get("manager_flag"):    
+            flags.append("⚠️ MANAGER")
+            manager_tooltip = f.get("manager_flag_reason", "")
         if f.get("beta_flag"):       flags.append("⚡ BETA>1.3")
         if f.get("ptr_flag"):        flags.append("🔄 HIGH PTR")
-        flag_str = " ".join(flags)
+        flag_str = " ".join(flags) if flags else "✅ Clean"
 
         pct = f.get("rolling_category_percentile")
         rows.append({
             "Rank":          f"#{rank}",
             "Fund":          f.get("name", "")[:55],
             "Status":        cont,
-            "Flags":         flag_str or "✅ Clean",
+            "Flags":         flag_str,
+            "_manager_tooltip": manager_tooltip,
             "Score /4":      _score_bar(f.get("total_score")),
             f"RC [{rw_label}]": _fmt(f.get("rolling_consistency"), pct=True),
             "Cat Pct":       f"{pct:.0f}th" if pct is not None else "—",
@@ -164,6 +168,7 @@ def _render_active_table(top_funds: list, eliminated: list, category_avg: dict,
             "Fund":          "◆ Category Average",
             "Status":        "",
             "Flags":         "",
+            "_manager_tooltip": "",
             "Score /4":      "",
             f"RC [{rw_label}]": _fmt(category_avg.get("rolling_consistency"), pct=True),
             "Cat Pct":       "—",
@@ -193,30 +198,48 @@ def _render_active_table(top_funds: list, eliminated: list, category_avg: dict,
             return ["background-color: #f0faf4"] * len(row)
         return [""] * len(row)
 
+    # Build dataframe - just show flag symbols
+    df_display = pd.DataFrame(rows)
+    
+    # Collect warnings from flagged funds for display above table
+    fund_warnings = []
+    for f in top_funds:
+        warnings = []
+        if f.get("manager_flag") and f.get("manager_flag_reason"):
+            warnings.append(f"⚠️ **Manager Change**: {f.get('manager_flag_reason')}")
+        if f.get("beta_flag") and f.get("beta_flag_reason"):
+            warnings.append(f"⚡ **High Beta**: {f.get('beta_flag_reason')}")
+        if f.get("ptr_flag") and f.get("ptr_flag_reason"):
+            warnings.append(f"🔄 **High Turnover**: {f.get('ptr_flag_reason')}")
+        if warnings:
+            fund_warnings.append(f"**{f.get('name', '')[:50]}**")
+            for w in warnings:
+                fund_warnings.append(f"  • {w}")
+    
+    # Show warnings section above table (always visible, populated only if warnings exist)
+    if fund_warnings:
+        with st.expander("⚠️ Fund Warnings & Alerts", expanded=True):
+            for line in fund_warnings:
+                st.markdown(line)
+    else:
+        st.caption("✓ No warnings for any fund in this category")
+    
+    df_display = df_display.drop(columns=["_manager_tooltip"], errors="ignore")
+    
+    def _highlight(row):
+        if row["Rank"] == "AVG":
+            return ["background-color: #eef2f7; font-style: italic"] * len(row)
+        if "⚠️" in str(row.get("Flags", "")) or "⚡" in str(row.get("Flags", "")):
+            return ["background-color: #fff8e1"] * len(row)
+        if "Holdover" in str(row.get("Status", "")):
+            return ["background-color: #f0faf4"] * len(row)
+        return [""] * len(row)
+
     st.dataframe(
         df_display.style.apply(_highlight, axis=1),
         use_container_width=True,
         hide_index=True,
     )
-
-    # ── Flag detail cards ─────────────────────────────────────────────────
-    for f in top_funds:
-        if f.get("manager_flag"):
-            st.warning(f"**⚠️ Manager Change Signal — {f['name'][:55]}**\n\n{f.get('manager_flag_reason', '')}")
-        if f.get("beta_flag"):
-            st.info(f"**⚡ High Beta — {f['name'][:55]}**\n\n{f.get('beta_flag_reason', '')}")
-        if f.get("ptr_flag"):
-            st.error(f"**🔄 High Portfolio Turnover — {f['name'][:55]}**\n\n{f.get('ptr_flag_reason', '')}")
-
-    # ── Continuity desc ───────────────────────────────────────────────────
-    for f in top_funds:
-        cont   = f.get("continuity_status", "")
-        desc   = f.get("continuity_desc", "")
-        if desc:
-            if "Holdover" in cont:
-                st.success(f"**{cont} {f['name'][:50]}**: {desc}")
-            else:
-                st.warning(f"**{cont} {f['name'][:50]}**: {desc}")
 
     # ── Eliminated ────────────────────────────────────────────────────────
     if eliminated:
@@ -226,18 +249,6 @@ def _render_active_table(top_funds: list, eliminated: list, category_avg: dict,
                 for e in eliminated
             ])
             st.dataframe(df_elim, use_container_width=True, hide_index=True)
-
-    # ── Manual checklist ──────────────────────────────────────────────────
-    with st.expander("📋 Manual Verification Checklist (for 🌟 New Entrants)"):
-        st.markdown("""
-1. **Fund Manager Tenure**: Is the manager who built this track record still there? (< 3 years = risk) — check AMC website.
-2. **AUM Trajectory**: Has AUM doubled in the last 12 months? Could force mandate drift in Mid/Small Cap.
-3. **Sector Concentration**: No single sector > 35% of portfolio.
-4. **Portfolio P/E**: Compare fund P/E vs benchmark P/E. Gap > 30% = style drift or expensive positioning.
-5. **SEBI Stress Test (Mid/Small Cap only)**: Check days-to-liquidate 50% of portfolio on the SEBI portal.
-6. **Switching Cost**: Calculate Exit Load + LTCG (10% above ₹1L) / STCG (15%) before any switch.
-7. **2-Quarter Rule**: Only exit a 🛡️ Holdover if it fails a gate for 2 consecutive quarters — a rank drop alone is not sufficient.
-        """)
 
 
 def _render_passive_table(top_funds: list, eliminated: list, category: str):
@@ -265,15 +276,6 @@ def _render_passive_table(top_funds: list, eliminated: list, category: str):
 
     df = pd.DataFrame(rows)
     st.dataframe(df, use_container_width=True, hide_index=True)
-
-    for f in top_funds:
-        cont = f.get("continuity_status", "")
-        desc = f.get("continuity_desc", "")
-        if desc:
-            if "Holdover" in cont:
-                st.success(f"**{cont} {f['name'][:50]}**: {desc}")
-            else:
-                st.warning(f"**{cont} {f['name'][:50]}**: {desc}")
 
     if eliminated:
         with st.expander(f"❌ Eliminated ({len(eliminated)})"):
